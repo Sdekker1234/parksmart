@@ -1,0 +1,21 @@
+# Render Blueprint voor ParkSmart (gratis web service).
+# Render leest dit bestand als je in het dashboard kiest voor New > Blueprint.
+services:
+  - type: web
+    name: parksmart-denbosch
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/status
+    autoDeploy: true
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: ANTHROPIC_API_KEY
+        sync: false # vul je zelf in het dashboard in (of laat leeg: dan werkt de app met regels)
+      - key: AI_LIMIT_PER_HOUR
+        value: "30"
+      - key: AI_DAILY_LIMIT
+        value: "200"

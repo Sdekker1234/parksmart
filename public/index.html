@@ -51,7 +51,7 @@
           <label class="field-label" for="destInput">Waar wil je heen?</label>
           <div class="dest-field">
             <svg class="dest-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.4-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>
-            <input id="destInput" type="search" autocomplete="off" spellcheck="false" placeholder="Adres, straat of plek in Den Bosch" role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list">
+            <input id="destInput" type="search" autocomplete="off" spellcheck="false" placeholder="Winkel, adres of plek in Den Bosch" role="combobox" aria-expanded="false" aria-controls="suggestions" aria-autocomplete="list">
             <button class="locate-btn" id="locateBtn" type="button" aria-label="Gebruik mijn huidige locatie" title="Gebruik mijn locatie">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.8v3M12 19.2v3M1.8 12h3M19.2 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
             </button>
@@ -62,13 +62,15 @@
 
         <form class="pane" id="paneAi" role="tabpanel" aria-labelledby="tabAi" hidden>
           <label class="field-label" for="aiInput">Zeg het in je eigen woorden</label>
-          <textarea id="aiInput" rows="2" maxlength="500" placeholder="Bijv. zaterdag om 14:00 drie uur bij de Sint-Jan, max 10 minuten lopen"></textarea>
+          <textarea id="aiInput" rows="2" maxlength="500" placeholder="Bijv. waar parkeer ik het goedkoopst voor de HEMA, zaterdag om 14:00 voor 2 uur?"></textarea>
           <div class="ai-row">
             <span class="ai-status" id="aiStatus">AI laden…</span>
             <button class="btn btn-primary" id="aiSubmit" type="submit">Zoek</button>
           </div>
           <p class="ai-echo" id="aiEcho" hidden></p>
         </form>
+
+        <div class="dest-info" id="destInfo" hidden aria-live="polite"></div>
 
         <div class="when">
           <div class="when-block">
@@ -155,7 +157,7 @@
         <dt><span class="trust trust-operator">Exploitant</span> RDW Shared Parking Data Platform</dt>
         <dd>Locaties van ingangen, capaciteit, tarieven van P+R-locaties en het ziekenhuis, plus <strong>live vrije plekken</strong> waar die beschikbaar en recent zijn.</dd>
         <dt><span class="trust trust-community">Community</span> OpenStreetMap</dt>
-        <dd>Extra gratis parkeerplekken en particuliere garages zonder open tarief. Gratis plekken in een RDW-betaalzone laat ik weg.</dd>
+        <dd>Extra gratis parkeerplekken en particuliere garages zonder open tarief. Gratis plekken in een RDW-betaalzone laat ik weg. Ook de winkels, horeca en andere bedrijven waar je naartoe kunt zoeken komen uit OpenStreetMap, inclusief openingstijden als die bekend zijn.</dd>
       </dl>
       <p class="muted">Looptijden zijn schattingen (hemelsbreed × 1,25 bij 4,8 km/u). Tik op een optie voor de echte looproute. Bestemmingen zoek ik via PDOK (Kadaster). Ik toon nooit geschatte bezetting: alleen echte, recente live data.</p>
       <p class="muted" id="infoAi"></p>

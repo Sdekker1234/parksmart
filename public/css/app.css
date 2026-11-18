@@ -100,6 +100,10 @@ svg { display: block; }
 }
 #map { position: absolute; inset: 0; background: #dfe7ef; }
 .panel { position: relative; z-index: 1; padding: 14px 16px 32px; background: var(--bg); }
+/* Mobiel: focus en scrollIntoView moeten onder de vaste balk + kaart uitkomen. */
+@media (max-width: 899px) {
+  html { scroll-padding-top: calc(56px + max(36vh, 230px) + 10px); }
+}
 
 @media (min-width: 900px) {
   .layout { flex-direction: row-reverse; height: calc(100vh - 56px); }
@@ -170,6 +174,23 @@ textarea#aiInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(
 .ai-status { font-size: 12.5px; color: var(--muted); }
 .ai-status.is-on::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--cheap); margin-right: 6px; vertical-align: 1px; }
 .ai-echo { margin: 10px 0 0; padding: 8px 10px; background: var(--surface-2); border-radius: 9px; font-size: 13.5px; }
+
+.dest-info {
+  margin-top: 12px; padding: 10px 12px; border-radius: 11px;
+  background: var(--surface-2); border: 1px solid var(--line); font-size: 13.5px;
+}
+.di-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; }
+.di-head b { font-size: 14.5px; }
+.di-kind { color: var(--accent); font-weight: 600; font-size: 12.5px; }
+.di-addr { color: var(--muted); }
+.di-hours { margin-top: 5px; display: flex; gap: 6px; align-items: flex-start; }
+.di-hours svg { width: 15px; height: 15px; flex: none; margin-top: 2px; color: var(--muted); }
+.di-hours small, .di-src { color: var(--muted); font-size: 11.5px; }
+.di-note { margin-top: 5px; color: var(--amber); }
+.di-alt { margin-top: 8px; }
+.di-alt-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.di-alt .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.di-alt .chip { font-size: 12.5px; padding: 4px 9px; }
 
 .btn {
   border: 0; border-radius: 10px; padding: 9px 16px; font-weight: 600; cursor: pointer; text-decoration: none;

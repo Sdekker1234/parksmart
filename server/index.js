@@ -7,6 +7,7 @@ import { CITY, SEARCH, LANDMARKS } from './config.js';
 import { loadRdw, rdwStatus, uuidByArea } from './rdw.js';
 import { loadSpdp, spdpStatus } from './spdp.js';
 import { loadOsm, osmStatus } from './osm.js';
+import { loadPlaces, placesStatus } from './places.js';
 import { search, zonesForMap } from './search.js';
 import { suggest, searchOne, reverseLabel } from './geocode.js';
 import { parseArrival } from './pricing.js';
@@ -27,8 +28,8 @@ let refreshing = null;
 async function loadData(opts = {}) {
   const r = await loadRdw(opts);
   const extra = [...uuidByArea().entries()].filter(([id]) => id.startsWith(`${CITY.areaManagerId}_`)).map(([, u]) => u);
-  const [s, o] = await Promise.all([loadSpdp(extra, opts), loadOsm(opts)]);
-  return [r, s, o].some((x) => x.stale);
+  const [s, o, pl] = await Promise.all([loadSpdp(extra, opts), loadOsm(opts), loadPlaces(opts)]);
+  return [r, s, o, pl].some((x) => x.stale);
 }
 // Live verversen op de achtergrond (na een snelle start of periodiek).
 function refreshLive(reason) {
@@ -176,7 +177,7 @@ async function handle(req, res) {
       landmarks: LANDMARKS.map(({ id, label, lat, lon }) => ({ id, label, lat, lon })),
       now: n.toISOString().slice(0, 16),
       ai: aiStatus(),
-      data: { rdw: rdwStatus(), spdp: spdpStatus(), osm: osmStatus() },
+      data: { rdw: rdwStatus(), spdp: spdpStatus(), osm: osmStatus(), places: placesStatus() },
     });
   }
 
@@ -210,12 +211,14 @@ async function handle(req, res) {
   }
 
   if (p === '/api/geocode/suggest') {
+    await ensureData().catch(() => {});
     const term = (q.get('q') || '').trim();
     if (term.length < 2) return send(res, 200, { results: [] });
     return send(res, 200, { results: await suggest(term.slice(0, 120)) });
   }
 
   if (p === '/api/geocode/search') {
+    await ensureData().catch(() => {});
     const term = (q.get('q') || '').trim();
     if (term.length < 2) return send(res, 200, { result: null });
     return send(res, 200, { result: await searchOne(term.slice(0, 120)) });
@@ -257,6 +260,7 @@ async function handle(req, res) {
   }
 
   if (p === '/api/ai/parse' && req.method === 'POST') {
+    await ensureData().catch(() => {});
     const body = await readBody(req);
     if (!body.text || typeof body.text !== 'string') return bad(res, 'text ontbreekt');
     const parsed = await parseQuery(body.text, nowNL(), { allowAi: () => aiAllowed(req) });
@@ -268,8 +272,19 @@ async function handle(req, res) {
   if (p === '/api/ai/advice' && req.method === 'POST') {
     const body = await readBody(req);
     if (!Array.isArray(body.options)) return bad(res, 'options ontbreekt');
+    const dp = body.destination_place;
     const ctx = {
       destination: String(body.destination || '').slice(0, 120),
+      // Bedrijf als bestemming (uit OpenStreetMap): de AI kan dan zeggen of het open is bij aankomst.
+      destination_place:
+        dp && typeof dp === 'object'
+          ? {
+              name: String(dp.name || '').slice(0, 100),
+              kind: String(dp.kind || '').slice(0, 60),
+              address: String(dp.address || '').slice(0, 100),
+              opening_hours_osm: String(dp.hours || '').slice(0, 200) || null,
+            }
+          : null,
       arrival: String(body.arrival || '').slice(0, 20),
       duration_label: String(body.duration_label || '').slice(0, 40),
       filters: body.filters ?? {},
@@ -309,7 +324,7 @@ server.listen(PORT, HOST, () => {
   console.log(`  AI: ${ai.enabled ? `aan (${ai.model})` : `uit (${ai.reason}), regels als terugval`}\n`);
   ensureData()
     .then(() => {
-      const s = { rdw: rdwStatus(), spdp: spdpStatus(), osm: osmStatus() };
+      const s = { rdw: rdwStatus(), spdp: spdpStatus(), osm: osmStatus(), places: placesStatus() };
       for (const [k, v] of Object.entries(s)) console.log(`  data ${k.padEnd(4)} ${v.origin}${v.savedAt ? ` (${new Date(v.savedAt).toLocaleString('nl-NL')})` : ''}`);
     })
     .catch((err) => console.error('  data laden mislukt:', err.message));

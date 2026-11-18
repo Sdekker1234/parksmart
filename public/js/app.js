@@ -118,7 +118,7 @@ function bindUi() {
   };
   const choose = (r) => {
     closeList();
-    setDestination({ lat: r.lat, lon: r.lon, label: r.label.replace(/, 's-Hertogenbosch$/, '') });
+    setDestination(toDest(r));
   };
   input.addEventListener('input', () => {
     clearTimeout(sugTimer);
@@ -328,12 +328,58 @@ function syncSort() {
 }
 
 // ---------- Bestemming ----------
+const shortLabel = (s) => String(s || '').replace(/, 's-Hertogenbosch$/, '');
+
+// Zoekresultaat (adres, snelkeuze of bedrijf) -> bestemming. Bedrijven hebben extra info (categorie, openingstijden).
+function toDest(r, extra = {}) {
+  const isPlace = String(r.id || '').startsWith('place-');
+  return {
+    lat: r.lat,
+    lon: r.lon,
+    label: shortLabel(r.label),
+    place: isPlace ? { name: r.name, kind: r.kind, address: r.address, hours: r.hours, hoursNl: r.hoursNl, id: r.id } : null,
+    alternatives: r.alternatives ?? [],
+    note: r.note ?? null,
+    ...extra,
+  };
+}
+
 function setDestination(dest, { search = true } = {}) {
   state.dest = dest;
   $('#destInput').value = dest.label || '';
   $('#mapHint').hidden = true;
   mapApi.setDestination(dest);
+  renderDestInfo();
   if (search) runSearch({ fit: true });
+}
+
+function renderDestInfo() {
+  const box = $('#destInfo');
+  const d = state.dest;
+  if (!d || (!d.place && !d.note)) {
+    box.hidden = true;
+    return;
+  }
+  const p = d.place;
+  const clock = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  box.innerHTML = `
+    ${p ? `<div class="di-head"><b>${esc(p.name)}</b><span class="di-kind">${esc(p.kind)}</span>${p.address ? `<span class="di-addr">${esc(p.address)}</span>` : ''}</div>
+      <div class="di-hours">${clock}<span>${p.hoursNl ? `${esc(p.hoursNl)} <small>(openingstijden volgens OpenStreetMap)</small>` : '<small>Openingstijden onbekend</small>'}</span></div>` : ''}
+    ${d.note ? `<div class="di-note">${esc(d.note)}</div>` : ''}
+    ${d.alternatives?.length ? `<div class="di-alt"><span class="di-alt-label">${p && d.alternatives.every((a) => a.name === p.name) ? 'Andere vestigingen' : 'Of bedoel je'}</span><div class="chips">${d.alternatives
+      .map((a, i) => `<button type="button" class="chip" data-alt="${i}">${esc(a.address ? `${a.name}, ${a.address}` : a.label)}</button>`)
+      .join('')}</div></div>` : ''}`;
+  box.hidden = false;
+  for (const b of box.querySelectorAll('[data-alt]')) {
+    b.addEventListener('click', () => {
+      const i = Number(b.dataset.alt);
+      const chosen = d.alternatives[i];
+      // Wissel: de huidige bestemming wordt zelf een alternatief.
+      const current = d.place ? { ...d.place, id: d.place.id, label: d.label, lat: d.lat, lon: d.lon } : null;
+      const rest = d.alternatives.filter((_, j) => j !== i);
+      setDestination(toDest(chosen, { alternatives: current ? [current, ...rest] : rest }));
+    });
+  }
 }
 
 async function geocodeFree(text) {
@@ -341,8 +387,8 @@ async function geocodeFree(text) {
   if (q.length < 2) return;
   try {
     const { result } = await api.geocode(q);
-    if (!result) return showMessage(`Ik kan "${q}" niet vinden in Den Bosch. Probeer een straatnaam of kies een punt op de kaart.`, true);
-    setDestination({ lat: result.lat, lon: result.lon, label: result.label.replace(/, 's-Hertogenbosch$/, '') });
+    if (!result) return showMessage(`Ik kan "${q}" niet vinden in Den Bosch. Probeer een winkelnaam, straatnaam of kies een punt op de kaart.`, true);
+    setDestination(toDest(result));
   } catch {
     showMessage('Zoeken lukt nu niet. Controleer je internetverbinding.', true);
   }
@@ -415,7 +461,7 @@ async function aiSubmit(text) {
     if (r.place && r.placeInCity === false) {
       msg += '<br>Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.';
     } else if (r.place) {
-      setDestination({ lat: r.place.lat, lon: r.place.lon, label: r.place.label.replace(/, 's-Hertogenbosch$/, '') }, { search: false });
+      setDestination(toDest(r.place), { search: false });
     } else if (r.destination) {
       msg += `<br>Ik kon "${esc(r.destination)}" niet op de kaart vinden. Tik op de kaart of typ een adres.`;
     } else if (!state.dest) {
@@ -679,8 +725,10 @@ function scheduleAdvice(list, cheapest) {
   adviceTimer = setTimeout(async () => {
     adviceCtl?.abort();
     adviceCtl = new AbortController();
+    const dp = state.dest?.place;
     const payload = {
       destination: state.dest?.label,
+      destination_place: dp ? { name: dp.name, kind: dp.kind, address: dp.address, hours: dp.hours } : null,
       arrival: state.results.arrival,
       duration_label: duration(state.durationMin),
       filters: { max_price_eur: state.filters.maxPrice, max_walk_minutes: state.filters.maxWalk, types: [...state.filters.types] },
@@ -748,11 +796,11 @@ function renderAiStatus() {
 
 function renderDataLine() {
   const d = state.status.data;
-  const label = { rdw: 'RDW-zones', spdp: 'RDW-locaties', osm: 'OpenStreetMap' };
+  const label = { rdw: 'RDW-zones', spdp: 'RDW-locaties', osm: 'OpenStreetMap', places: 'Bedrijven' };
   const pill = (k, v) => {
     if (!v || v.origin === 'none') return `<span class="pill is-warn">${label[k]}: niet geladen</span>`;
     if (v.origin === 'snapshot') return `<span class="pill is-warn">${label[k]}: offline momentopname van ${new Date(v.savedAt).toLocaleDateString('nl-NL')}</span>`;
-    return `<span class="pill">${label[k]}: bijgewerkt ${timeAgo(v.savedAt)}</span>`;
+    return `<span class="pill">${label[k]}${v.count ? ` (${v.count.toLocaleString('nl-NL')})` : ''}: bijgewerkt ${timeAgo(v.savedAt)}</span>`;
   };
   $('#dataLine').innerHTML = `${Object.entries(d).map(([k, v]) => pill(k, v)).join('')}<span class="pill">Garagetarieven: gemeentebesluit 2026</span>`;
 }
@@ -783,5 +831,18 @@ function restoreFromHash() {
     setArrivalMode('later', { search: false });
   }
   syncFilters();
-  if (Number.isFinite(lat) && Number.isFinite(lon) && lat && lon) setDestination({ lat, lon, label: p.get('q') || 'Bestemming' });
+  if (Number.isFinite(lat) && Number.isFinite(lon) && lat && lon) {
+    const label = p.get('q') || 'Bestemming';
+    setDestination({ lat, lon, label });
+    // Gedeelde link naar een bedrijf: haal categorie en openingstijden opnieuw op.
+    api
+      .geocode(label)
+      .then(({ result }) => {
+        if (!result || !String(result.id).startsWith('place-')) return;
+        if (Math.abs(result.lat - lat) > 5e-4 || Math.abs(result.lon - lon) > 5e-4 || state.dest?.lat !== lat) return;
+        state.dest = toDest(result, { lat, lon, label });
+        renderDestInfo();
+      })
+      .catch(() => {});
+  }
 }

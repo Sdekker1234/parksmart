@@ -66,7 +66,7 @@ const QuerySchema = z.object({
 const PARSE_SYSTEM = `You convert a driver's request (usually in Dutch) into search parameters for ParkSmart, a parking price comparison app that only covers the municipality of 's-Hertogenbosch (Den Bosch), the Netherlands.
 
 Fill the fields like this:
-- destination: where the driver wants to go, phrased so a Dutch geocoder finds it (street and number, square, building or landmark, e.g. "Sint-Janskathedraal", "Markt", "Vughterstraat 120"). Drop filler words such as "parkeren", "bij", "naar". Use null when no destination is given or the driver wants their current location.
+- destination: where the driver wants to go, phrased so the app's search finds it. That can be a shop, restaurant, business or other place by name (keep the name exactly, plus the street if given, e.g. "HEMA", "Albert Heijn Vughterstraat", "Jan de Groot"), a type of place ("apotheek", "kapper"), a landmark ("Sint-Janskathedraal", "Markt") or an address ("Vughterstraat 120"). Drop filler words such as "parkeren", "bij", "naar", "voor de". Use null when no destination is given or the driver wants their current location.
 - date (YYYY-MM-DD) and time (HH:MM, 24-hour): resolve relative words (vandaag, morgen, zaterdag, vanavond = 19:00, vanmiddag = 14:00, 's ochtends = 09:00) against the current date and time in the message. Use null when not mentioned.
 - duration_minutes: how long they park. "hele dag" = 480, "half uurtje" = 30. If they give an end time, compute the duration from the start time. Use null when not mentioned.
 - max_price_eur and max_walk_minutes: only when the driver states a limit. Convert walking distances to minutes at 80 metres per minute.
@@ -117,6 +117,7 @@ Rules:
 - source_trust tells you how reliable a price is: "official" (municipal decree or RDW open data), "operator" (operator data via RDW), "community" (OpenStreetMap), "estimate" (calculated with last year's tariff because this year's decree is not in the app yet). When you recommend a non-official option, say briefly that the driver should check on site; for "estimate", call the price an estimate.
 - Only mention free spaces when the option has "live" data, and say it is live.
 - When the cheapest option needs a much longer walk, compare it with a closer option in exact euros and minutes, for example "voor €2,10 meer loop je 9 minuten minder".
+- destination_place, when present, is the shop or business the driver is going to (from OpenStreetMap). If it has opening_hours_osm (OpenStreetMap syntax, e.g. "Mo-Sa 09:00-18:00; Su 12:00-17:00"), check them against the arrival time and parking duration. Mention it briefly when the place is closed at arrival or closes during the stay, and say the hours come from OpenStreetMap. If the hours are missing or you cannot tell, say nothing about them.
 - Options with shuttle: true are transferia; the price includes a bus or rental bike to the centre for up to 4 people. Mention that instead of the walking time.
 - headline: at most 8 words. advice: 2 or 3 sentences, at most 60 words. tip: one extra practical tip taken from the data (for example evening rate, maximum stay, first hours free), or null.
 - recommended_id: the id of the option you recommend.`;

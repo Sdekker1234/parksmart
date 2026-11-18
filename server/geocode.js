@@ -1,8 +1,9 @@
-// Bestemming zoeken: snelkeuzes, PDOK Locatieserver (Kadaster, adressen/straten) en
-// OpenStreetMap Nominatim (bezienswaardigheden) als laatste redmiddel.
+// Bestemming zoeken: snelkeuzes, bedrijven (OpenStreetMap), PDOK Locatieserver (Kadaster,
+// adressen/straten) en OpenStreetMap Nominatim als laatste redmiddel.
 import { CITY, LANDMARKS } from './config.js';
 import { fetchJson } from './cache.js';
 import { inBBox } from './geo.js';
+import { searchPlaces, placeInfo, branchesOf, STRONG_MATCH } from './places.js';
 
 const PDOK = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1';
 const FQ = `gemeentenaam:"${CITY.name}"`;
@@ -68,25 +69,49 @@ async function nominatim(q) {
   }));
 }
 
+const strongPlaces = (q, limit) => searchPlaces(q, { limit }).filter((p) => p.score >= STRONG_MATCH);
+
 export async function suggest(q) {
   const lm = landmarkMatches(q);
+  const pl = strongPlaces(q, 5).map(placeInfo);
   let pd = [];
   try {
-    pd = await pdokSuggest(q);
+    pd = await pdokSuggest(q, 5);
   } catch {
-    /* PDOK onbereikbaar: alleen snelkeuzes */
+    /* PDOK onbereikbaar: alleen snelkeuzes en bedrijven */
   }
   const seen = new Set();
-  return [...lm, ...pd].filter((r) => (seen.has(r.label) ? false : seen.add(r.label))).slice(0, 8);
+  return [...lm, ...pl, ...pd].filter((r) => (seen.has(r.label) ? false : seen.add(r.label))).slice(0, 9);
 }
 
 // Eén beste treffer voor vrije tekst (gebruikt door de AI-zoekfunctie).
+// Bij een bedrijf met meerdere vestigingen staan de andere in `alternatives`.
 export async function searchOne(q) {
+  // Volgorde: exacte snelkeuze ("station") > bedrijf op naam+straat ("Jumbo Markt") > overige snelkeuze > bedrijf.
+  const nq = norm(q);
+  const exact = LANDMARKS.find((l) => norm(l.label) === nq || l.aliases.some((a) => norm(a) === nq));
+  if (exact) return { id: exact.id, label: exact.label, kind: 'Bezienswaardigheid', lat: exact.lat, lon: exact.lon };
+  const strong = strongPlaces(q, 7);
+  const best = strong[0];
+  // Alternatieven: andere vestigingen met dezelfde naam, anders andere sterke treffers (bijv. andere apotheken).
+  const asPlace = (p) => {
+    const branches = branchesOf(p);
+    const others = strong.filter((x) => x.id !== p.id).map(placeInfo);
+    return { ...placeInfo(p), alternatives: (branches.length ? branches : others).slice(0, 6) };
+  };
+  if (best && best.score >= 70) return asPlace(best);
   const lm = landmarkMatches(q);
   if (lm.length) return lm[0];
+  if (best) return asPlace(best);
   try {
     const pd = await pdokSuggest(q, 1);
     if (pd.length) return pd[0];
+    // "Jumbo Hinthamerstraat" zonder Jumbo daar: probeer het laatste deel (meestal de straat).
+    const words = q.trim().split(/\s+/);
+    for (let i = 1; i < words.length; i++) {
+      const tail = await pdokSuggest(words.slice(i).join(' '), 1);
+      if (tail.length) return { ...tail[0], note: `Geen "${words.slice(0, i).join(' ')}" gevonden; ik gebruik ${tail[0].label}.` };
+    }
   } catch {
     /* door naar Nominatim */
   }

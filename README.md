@@ -1,6 +1,6 @@
 # ParkSmart Den Bosch
 
-ParkSmart laat je in een paar seconden zien waar je het goedkoopst parkeert in 's-Hertogenbosch. Je kiest een bestemming en hoe lang je blijft. De app rekent dan voor elke optie de totaalprijs uit: gemeentelijke garages, betaalzones op straat, P+R, transferia en gratis plekken. Je ziet ook hoe ver je moet lopen, en je kunt direct navigeren.
+ParkSmart laat je in een paar seconden zien waar je het goedkoopst parkeert in 's-Hertogenbosch. Je kiest een bestemming (een adres, een plek of een van de ruim 2.300 winkels, horecazaken en andere bedrijven in de stad) en hoe lang je blijft. De app rekent dan voor elke optie de totaalprijs uit: gemeentelijke garages, betaalzones op straat, P+R, transferia en gratis plekken. Je ziet ook hoe ver je moet lopen, en je kunt direct navigeren.
 
 ## Starten
 
@@ -45,8 +45,8 @@ Boven de AI-limiet valt de app terug op de ingebouwde regels, dus hij blijft wer
 
 ParkSmart gebruikt Claude (`claude-opus-5-5`) voor twee dingen:
 
-1. **Vraag het AI**: je typt een zin als *"zaterdag om half drie drie uur bij de Sint-Jan, max 10 minuten lopen"* en Claude maakt daar zoekparameters van (bestemming, datum, tijd, duur, filters).
-2. **Advies**: Claude krijgt de door de app berekende opties en legt in een paar zinnen uit wat de slimste keuze is, inclusief de afweging tussen prijs en looptijd.
+1. **Vraag het AI**: je typt een zin als *"waar parkeer ik het goedkoopst voor de HEMA, zaterdag om 14:00 voor 2 uur?"* en Claude maakt daar zoekparameters van (bestemming, datum, tijd, duur, filters). De bestemming mag een winkel- of bedrijfsnaam zijn; heeft een keten meerdere vestigingen, dan kun je met één tik wisselen.
+2. **Advies**: Claude krijgt de door de app berekende opties en legt in een paar zinnen uit wat de slimste keuze is, inclusief de afweging tussen prijs en looptijd. Ga je naar een winkel waarvan de openingstijden bekend zijn, dan meldt Claude ook als die dicht is bij aankomst of sluit tijdens je bezoek.
 
 Prijzen rekent de app altijd zelf uit. Claude krijgt alleen die berekende feiten en heeft de opdracht niets te verzinnen. De antwoorden komen terug als gestructureerde JSON (`output_config.format`), zodat de app ze veilig kan gebruiken. Ik heb ook server-side fallbacks aangezet (`fallbacks: "default"`): als het model een verzoek weigert, probeert de API automatisch een passend ander model.
 
@@ -66,6 +66,7 @@ Zonder sleutel werkt alles ook. De app gebruikt dan een ingebouwde Nederlandstal
 | [RDW Open Data Parkeren](https://opendata.rdw.nl/browse?q=Open%20Data%20Parkeren) (NPR) | Betaalzones (polygonen), betaaltijden per dag, tarieven 2026, maximale parkeerduur, feestdagen | Officieel, dagelijks bijgewerkt |
 | [RDW Shared Parking Data Platform](https://npropendata.rdw.nl/parkingdata/v2/) | Ingangen en capaciteit van garages, tarieven van P+R Mayweg, P+R Magistratenlaan en het ziekenhuis, **live vrije plekken** | Exploitant |
 | [OpenStreetMap](https://www.openstreetmap.org/copyright) (Overpass) | Extra gratis parkeerplekken en particuliere garages zonder open tarief | Community |
+| [OpenStreetMap](https://www.openstreetmap.org/copyright) (Overpass) | Ruim 2.300 bedrijven in de gemeente: winkels, horeca, kantoren, zorg, sport, hotels, met adres en (vaak) openingstijden | Community, wekelijks ververst |
 | [PDOK Locatieserver](https://www.pdok.nl/) en BRT Achtergrondkaart | Adressen zoeken en de kaart | Officieel (Kadaster) |
 | OSRM voetprofiel (routing.openstreetmap.de) | Echte looproute als je een optie opent | Community |
 
@@ -74,7 +75,8 @@ Een paar keuzes die ik bewust heb gemaakt:
 - **Geen geschatte bezetting.** Live vrije plekken toon ik alleen als de bron in het afgelopen uur is bijgewerkt. Op dit moment geldt dat voor P+R Mayweg en P+R Magistratenlaan. De gemeentelijke garages publiceren geen actuele bezetting in open data.
 - **RDW wint van OpenStreetMap.** Een plek die in OSM "gratis" heet maar binnen een RDW-betaalzone ligt, laat ik weg.
 - **Prijs onbekend blijft onbekend.** Garages zonder open tarief (zoals Q-Park Tolbrug) staan met een vraagteken in de lijst en tellen niet mee voor "goedkoopst".
-- **Offline terugval.** Als een bron niet bereikbaar is, gebruikt de server de laatste cache of de meegeleverde momentopname in `data/snapshot/`. De app laat dat dan duidelijk zien onderaan de lijst. Een nieuwe momentopname maak je met `npm run snapshot`.
+- **Offline terugval.** Als een bron niet bereikbaar is, gebruikt de server de laatste cache of de meegeleverde momentopname in `data/snapshot/`. De app laat dat dan duidelijk zien onderaan de lijst. Een nieuwe momentopname maak je met `npm run snapshot` (alleen de bedrijven: `npm run snapshot -- places`).
+- **Bedrijven zijn communitydata.** Een officieel, vrij register van alle bedrijven met locatie bestaat niet (het KvK-handelsregister is niet open). Naam, adres en openingstijden uit OpenStreetMap kunnen dus verouderd zijn; de app zegt dat er altijd bij.
 
 ## Aannames en beperkingen
 
@@ -96,7 +98,8 @@ server/
   config.js       Den Bosch-instellingen, tarieven uit het besluit, snelkeuzes
   rdw.js          RDW Open Data Parkeren: zones, tijdvakken, tariefdelen
   spdp.js         RDW SPDP: locaties, operatortarieven, live bezetting
-  osm.js          OpenStreetMap via Overpass
+  osm.js          OpenStreetMap via Overpass (parkeerplekken)
+  places.js       Bedrijven uit OpenStreetMap: zoeken op naam, merk, categorie en straat
   pricing.js      Tariefberekening (straat, garage, transferium, SPDP)
   search.js       Combineert alle bronnen tot vergelijkbare opties
   geocode.js      PDOK + Nominatim + snelkeuzes

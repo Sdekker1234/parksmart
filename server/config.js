@@ -27,6 +27,7 @@ export const TTL = {
   spdpStatic: 24 * 3600e3,
   spdpDynamic: 2 * 60e3,
   osm: 24 * 3600e3,
+  places: 7 * 24 * 3600e3, // bedrijven veranderen langzaam; zware Overpass-query
 };
 
 // Live bezetting tonen we alleen als die recent is bijgewerkt.

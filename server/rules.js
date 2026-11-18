@@ -7,7 +7,7 @@ const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.ge
 
 // now = Date met NL-wandklok als UTC
 const NUMBER_WORDS = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10, elf: 11, twaalf: 12, vijftien: 15, twintig: 20, dertig: 30, veertig: 40 };
-const NUM_RE = new RegExp(`\\b(${Object.keys(NUMBER_WORDS).join('|')})\\b(?=\\s+(?:uur|uren|minuten|min|minuutjes|dagen|dag)\\b)|(?<=\\b(?:half|om|vanaf|tot|rond)\\s+)\\b(${Object.keys(NUMBER_WORDS).join('|')})\\b`, 'g');
+const NUM_RE = new RegExp(`\\b(${Object.keys(NUMBER_WORDS).join('|')})\\b(?=\\s+(?:uur|uren|uurtje|uurtjes|minuten|min|minuutjes|dagen|dag)\\b)|(?<=\\b(?:half|om|vanaf|tot|rond)\\s+)\\b(${Object.keys(NUMBER_WORDS).join('|')})\\b`, 'g');
 
 export function parseRules(input, now) {
   let t = ` ${String(input || '').toLowerCase().replace(/\s+/g, ' ')} `;
@@ -81,7 +81,7 @@ export function parseRules(input, now) {
     if (!take(/(?:een\s+)?half(?:je)? uur(?:tje)?/, () => (out.duration_minutes = 30)))
       if (!take(/(?:de |een )?hele dag|dagje|werkdag/, () => (out.duration_minutes = 480)))
         if (!take(/(\d+)\s*(?:dagen|dag|etmalen|etmaal)\b/, (m) => (out.duration_minutes = Math.min(7, num(m[1])) * 1440)))
-        if (!take(/(\d+(?:[.,]\d+)?)\s*(?:uur|uren|u\b|h\b|hours?)/, (m) => (out.duration_minutes = Math.round(num(m[1]) * 60))))
+        if (!take(/(\d+(?:[.,]\d+)?)\s*(?:uurtjes?|uur|uren|u\b|h\b|hours?)/, (m) => (out.duration_minutes = Math.round(num(m[1]) * 60))))
           take(/(\d+)\s*(?:min(?:uten|uutjes)?)\b/, (m) => (out.duration_minutes = num(m[1])));
   take(/(?:een\s+)?kwartier(?:tje)?/, () => (out.duration_minutes ??= 15));
 
@@ -106,11 +106,12 @@ export function parseRules(input, now) {
 
   // Bestemming
   const stop = '(?=\\s+(?:voor|om|vanaf|van|tot|met|max|maximaal|en|morgen|vandaag|overmorgen|parkeren|' + WEEKDAYS.join('|') + ')\\b|[,.;!?]|\\s*$)';
-  const dm = new RegExp(`\\b(?:naar|bij|in de buurt van|nabij|richting|rond|op de|op het|aan de)\\s+(?:de |het |een )?(.+?)${stop}`).exec(t);
+  // "naar de HEMA", "bij Jan de Groot", "voor de Jumbo" (de duur "voor 2 uur" is hierboven al weggehaald)
+  const dm = new RegExp(`\\b(?:naar|bij|vlakbij|in de buurt van|nabij|richting|rond|voor de|voor het|op de|op het|aan de)\\s+(?:de |het |een )?(.+?)${stop}`).exec(t);
   if (dm) out.destination = cleanDest(dm[1]);
   if (!out.destination) {
     const rest = cleanDest(
-      t.replace(/\b(ik|wil|moet|ga|gaan|graag|parkeren|parkeer|parkeerplek|plek|auto|zoek|zoeken|een|de|het|in|den bosch|'s-hertogenbosch|goedkoop|goedkoopste|gratis|garage|straat|lopen|max|maximaal|en|voor|om|uur|ongeveer)\b/g, ' '),
+      t.replace(/\b(ik|wil|moet|ga|gaan|graag|waar|wat|welke|hoe|is|kan|mijn|parkeren|parkeer|parkeerplaats|parkeerplek|plek|auto|kwijt|zetten|neerzetten|zoek|zoeken|een|de|het|in|den bosch|'s-hertogenbosch|best|beste|goedkoop|goedkoopst|goedkoopste|gratis|garage|straat|lopen|max|maximaal|en|voor|om|uur|ongeveer)\b/g, ' '),
     );
     if (rest.length >= 3) out.destination = rest;
   }

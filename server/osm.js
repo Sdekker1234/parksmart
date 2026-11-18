@@ -13,34 +13,40 @@ const KEEP = ['name', 'parking', 'fee', 'access', 'capacity', 'operator', 'addr:
 
 let state = null;
 
-async function fetchAll() {
-  const b = CITY.osmBBox;
-  const q = `[out:json][timeout:60];(nwr["amenity"="parking"](${b.south},${b.west},${b.north},${b.east}););out center tags;`;
+// Overpass-query met retries; geeft de ruwe elements terug.
+export async function overpass(query, { timeoutMs = 90000 } = {}) {
   let lastErr;
   for (const [i, ep] of ENDPOINTS.entries()) {
     if (i > 0) await new Promise((r) => setTimeout(r, 3000));
     try {
       const j = await fetchJson(ep, {
         method: 'POST',
-        body: `data=${encodeURIComponent(q)}`,
+        body: `data=${encodeURIComponent(query)}`,
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeoutMs: 90000,
+        timeoutMs,
       });
-      return (j.elements ?? [])
-        .map((e) => {
-          const lat = e.lat ?? e.center?.lat;
-          const lon = e.lon ?? e.center?.lon;
-          if (lat == null || lon == null) return null;
-          const tags = {};
-          for (const k of KEEP) if (e.tags?.[k] != null) tags[k] = e.tags[k];
-          return { id: `${e.type}/${e.id}`, lat, lon, tags };
-        })
-        .filter(Boolean);
+      return j.elements ?? [];
     } catch (err) {
       lastErr = err;
     }
   }
   throw lastErr ?? new Error('Overpass niet bereikbaar');
+}
+
+async function fetchAll() {
+  const b = CITY.osmBBox;
+  const q = `[out:json][timeout:60];(nwr["amenity"="parking"](${b.south},${b.west},${b.north},${b.east}););out center tags;`;
+  const elements = await overpass(q);
+  return elements
+    .map((e) => {
+      const lat = e.lat ?? e.center?.lat;
+      const lon = e.lon ?? e.center?.lon;
+      if (lat == null || lon == null) return null;
+      const tags = {};
+      for (const k of KEEP) if (e.tags?.[k] != null) tags[k] = e.tags[k];
+      return { id: `${e.type}/${e.id}`, lat, lon, tags };
+    })
+    .filter(Boolean);
 }
 
 export async function loadOsm(opts = {}) {

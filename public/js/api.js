@@ -1,4 +1,7 @@
-// Dunne laag rond de ParkSmart-API.
+// Dunne laag rond de ParkSmart-API. In de statische versie (GitHub Pages) draait alles in de browser
+// via local-api.js; met de Node-server praten we met /api/...
+const STATIC = Boolean(window.PARKSMART_STATIC);
+
 async function req(path, opts = {}) {
   const res = await fetch(path, {
     ...opts,
@@ -21,7 +24,7 @@ async function req(path, opts = {}) {
 
 const qs = (o) => new URLSearchParams(Object.entries(o).filter(([, v]) => v != null)).toString();
 
-export const api = {
+const serverApi = {
   status: () => req('/api/status'),
   zones: (date) => req(`/api/zones?${qs({ date })}`),
   search: (p, signal) => req(`/api/search?${qs(p)}`, { signal }),
@@ -32,3 +35,11 @@ export const api = {
   aiParse: (text) => req('/api/ai/parse', { method: 'POST', body: JSON.stringify({ text }) }),
   advice: (payload, signal) => req('/api/ai/advice', { method: 'POST', body: JSON.stringify(payload), signal }),
 };
+
+let local = null;
+const localApi = () => (local ??= import('./local-api.js').then((m) => m.localApi));
+
+export const api = Object.fromEntries(
+  Object.keys(serverApi).map((k) => [k, async (...args) => (STATIC ? (await localApi())[k](...args) : serverApi[k](...args))]),
+);
+export const isStatic = STATIC;

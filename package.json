@@ -8,7 +8,9 @@
     "start": "node --env-file-if-exists=.env server/index.js",
     "dev": "node --watch --env-file-if-exists=.env server/index.js",
     "snapshot": "node scripts/make-snapshot.js",
-    "test": "node --test \"server/**/*.test.js\""
+    "test": "node --test \"server/**/*.test.js\"",
+    "build:pages": "node scripts/build-pages.js",
+    "live": "node scripts/fetch-live.js"
   },
   "engines": {
     "node": "24.x"

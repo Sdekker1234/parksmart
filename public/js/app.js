@@ -4,6 +4,7 @@ import { createMap } from './map.js';
 import { eur, eurShort, duration, distance, localIso, nowRounded, arrivalLabel, timeAgo, esc } from './format.js';
 
 const $ = (s) => document.querySelector(s);
+const clockTime = (ts) => new Date(ts).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' });
 const $$ = (s) => [...document.querySelectorAll(s)];
 
 const DUR_CHIPS = [30, 60, 120, 180, 240, 480, 1440];
@@ -592,7 +593,7 @@ function cardHtml(o, { cheapest, recommended }) {
   const badges = [
     cheapest && '<span class="badge badge-cheap">Goedkoopst</span>',
     recommended && `<span class="badge badge-ai">${ICON.spark.replace('<svg', '<svg style="width:10px;height:10px;display:inline;vertical-align:-1px"')} Aanrader</span>`,
-    o.live && `<span class="badge badge-live">${o.live.vacant} vrij · live</span>`,
+    o.live && `<span class="badge badge-live">${o.live.vacant} vrij · ${state.status?.static ? `stand ${clockTime(o.live.updatedAt)}` : 'live'}</span>`,
     p.estimated && '<span class="badge badge-warn">Schatting</span>',
     o.warnings?.length && o.source.trust !== 'community' && '<span class="badge badge-warn">Let op</span>',
   ].filter(Boolean);
@@ -631,7 +632,7 @@ function detailHtml(o) {
     o.details?.paidTimes && ['Betaaltijden', o.details.paidTimes],
     o.address && ['Adres', o.address],
     o.capacity && ['Plaatsen', String(o.capacity)],
-    o.live && ['Live', `${o.live.vacant} van ${o.live.capacity} vrij (${timeAgo(o.live.updatedAt)})`],
+    o.live && [state.status?.static ? 'Bezetting' : 'Live', `${o.live.vacant} van ${o.live.capacity} vrij (stand ${clockTime(o.live.updatedAt)}, ${timeAgo(o.live.updatedAt)})`],
   ].filter(Boolean);
   const route = state.routes.get(o.id);
   const walkTxt = o.shuttle
@@ -802,7 +803,12 @@ function renderDataLine() {
     if (v.origin === 'snapshot') return `<span class="pill is-warn">${label[k]}: offline momentopname van ${new Date(v.savedAt).toLocaleDateString('nl-NL')}</span>`;
     return `<span class="pill">${label[k]}${v.count ? ` (${v.count.toLocaleString('nl-NL')})` : ''}: bijgewerkt ${timeAgo(v.savedAt)}</span>`;
   };
-  $('#dataLine').innerHTML = `${Object.entries(d).map(([k, v]) => pill(k, v)).join('')}<span class="pill">Garagetarieven: gemeentebesluit 2026</span>`;
+  const live = state.status.static
+    ? state.status.live?.generatedAt
+      ? `<span class="pill">Bezetting P+R: stand ${clockTime(state.status.live.generatedAt)}</span>`
+      : '<span class="pill is-warn">Bezetting P+R: niet beschikbaar</span>'
+    : '';
+  $('#dataLine').innerHTML = `${Object.entries(d).map(([k, v]) => pill(k, v)).join('')}${live}<span class="pill">Garagetarieven: gemeentebesluit</span>`;
 }
 
 // ---------- URL-staat (deelbare links) ----------

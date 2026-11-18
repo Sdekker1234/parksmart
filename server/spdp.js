@@ -133,7 +133,23 @@ export function dynamicUuidsByName(re) {
 // ---- Live bezetting ----
 const liveCache = new Map(); // uuid -> { at, value }
 
-async function fetchLive(uuid) {
+// Standaard halen we live op bij RDW. De statische (GitHub Pages) versie kan dat niet vanuit de
+// browser (geen CORS) en leest een bestand dat een GitHub Action elk half uur ververst.
+let liveProvider = null;
+let liveMaxAgeMin = LIVE_MAX_AGE_MIN;
+export function setLiveProvider(fn, { maxAgeMin = LIVE_MAX_AGE_MIN } = {}) {
+  liveProvider = fn;
+  liveMaxAgeMin = maxAgeMin;
+  liveCache.clear();
+}
+
+// Alle locaties met live data (voor het verversscript).
+export function dynamicUuids() {
+  return (state?.data?.index ?? []).filter((e) => e.dynamic).map((e) => e.uuid);
+}
+
+export async function fetchLive(uuid) {
+  if (liveProvider) return liveProvider(uuid);
   const json = await fetchJson(`${BASE}/dynamic/${uuid}`, { timeoutMs: 15000 });
   const st = json?.parkingFacilityDynamicInformation?.facilityActualStatus;
   if (!st) return null;
@@ -154,7 +170,7 @@ export async function liveFor(uuids) {
       value = await fetchLive(uuid).catch(() => null);
       liveCache.set(uuid, { at: Date.now(), value });
     }
-    if (value?.updatedAt && Date.now() - value.updatedAt < LIVE_MAX_AGE_MIN * 60e3 && value.vacant != null) {
+    if (value?.updatedAt && Date.now() - value.updatedAt < liveMaxAgeMin * 60e3 && value.vacant != null) {
       return { ...value, uuid };
     }
   }

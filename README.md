@@ -17,7 +17,31 @@ Wil je het op je telefoon testen (zelfde wifi)? Start dan met `HOST=0.0.0.0` en 
 
 ## Online zetten (testlink)
 
-ParkSmart is klaar voor [Render](https://render.com) (gratis web service). In `render.yaml` staat de configuratie.
+Er zijn twee manieren. Ze gebruiken dezelfde code.
+
+| | GitHub Pages | Render |
+|---|---|---|
+| Link | `https://sdekker1234.github.io/parksmart/` | `https://parksmart-denbosch.onrender.com` |
+| Kosten / account | gratis, alleen GitHub | gratis, Render-account nodig |
+| Slaapstand | nee, altijd direct snel | na 15 min zonder bezoek (eerste bezoek tot 1 min) |
+| Claude (AI) | nee: ingebouwde regels | ja, met je eigen API-sleutel |
+| Bezetting P+R | elk half uur ververst (met tijdstip) | live |
+
+### GitHub Pages
+
+De workflow `.github/workflows/pages.yml` bouwt een statische versie: de rekenmotor (`server/*.js`, behalve server, AI en cache) draait dan in de browser, met de data als bestanden ernaast (`npm run build:pages` maakt `dist/`).
+
+1. Zet in de repository eenmalig **Settings > Pages > Build and deployment > Source** op **GitHub Actions**.
+2. Start de workflow: **Actions > Online zetten (GitHub Pages) > Run workflow** (daarna gaat het vanzelf bij elke push).
+3. De link verschijnt in de workflow en onder Settings > Pages.
+
+De workflow ververst elk half uur de bezetting van de P+R-locaties en elke nacht de tarieven, locaties en bedrijven. Let op: GitHub zet geplande workflows in een openbare repository uit na 60 dagen zonder nieuwe commits. De site blijft dan gewoon werken, maar de data ververst niet meer; een nieuwe commit (bijvoorbeeld de tarieven van 2027) zet het weer aan. De bezetting verdwijnt vanzelf uit de app als die ouder is dan 90 minuten, zodat je nooit verouderde bezetting als actueel ziet.
+
+Claude kan op GitHub Pages niet draaien, omdat je API-sleutel dan in de browser zichtbaar zou zijn. De AI-vraag werkt daar met de ingebouwde regels.
+
+### Render
+
+ParkSmart is ook klaar voor [Render](https://render.com) (gratis web service). In `render.yaml` staat de configuratie.
 
 1. Zet deze map in een GitHub-repository.
 2. Ga in Render naar **New > Blueprint**, kies de repository en klik op **Apply**. Render voert `npm ci` en `npm start` uit.
@@ -105,9 +129,11 @@ server/
   geocode.js      PDOK + Nominatim + snelkeuzes
   ai.js           Claude: zoekvraag begrijpen en advies schrijven
   rules.js        Terugval zonder AI
-public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart)
+public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart; local-api.js voor de statische versie)
+web/cache.js      Browserversie van de cache voor GitHub Pages
 data/snapshot/    Momentopname van de bronnen voor offline gebruik
-scripts/          make-snapshot.js
+scripts/          make-snapshot.js, fetch-live.js (bezetting), build-pages.js (statische site)
+.github/          Workflow voor GitHub Pages
 ```
 
 ## Testen

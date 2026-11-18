@@ -1,34 +1,56 @@
-// Haal alle bronnen live op en bewaar ze als momentopname in data/snapshot/.
-// De server gebruikt die alleen als de live bronnen niet bereikbaar zijn (en toont dat in de app).
+// Haal de bronnen live op en bewaar ze als momentopname in data/snapshot/.
+// De server gebruikt die als de live bronnen niet bereikbaar zijn; de statische site (GitHub Pages)
+// gebruikt ze als databron.
+//
+//   npm run snapshot                    alles verversen (stopt bij een fout)
+//   npm run snapshot -- places          alleen één bron (rdw, spdp, osm of places)
+//   node scripts/make-snapshot.js --keep-on-error
+//                                       voor de GitHub Action: bij een fout de oude data houden;
+//                                       zware OpenStreetMap-queries alleen als de data oud is
 import { CITY } from '../server/config.js';
 import { loadRdw, uuidByArea } from '../server/rdw.js';
 import { loadSpdp } from '../server/spdp.js';
 import { loadOsm } from '../server/osm.js';
 import { loadPlaces } from '../server/places.js';
-import { writeSnapshot } from '../server/cache.js';
+import { writeSnapshot, readSnapshot } from '../server/cache.js';
 
-const rdw = await loadRdw({ forceLive: true });
-if (rdw.origin !== 'live') throw new Error(`RDW niet live opgehaald (${rdw.error})`);
-await writeSnapshot('rdw', rdw.data);
-console.log('rdw  ok', Object.fromEntries(Object.entries(rdw.data).map(([k, v]) => [k, v.length])));
+const args = process.argv.slice(2);
+const keepOnError = args.includes('--keep-on-error');
+const only = args.find((a) => !a.startsWith('--'));
+const DAY = 24 * 3600e3;
+// Minimale leeftijd voor een nieuwe Overpass-query in de Action (Overpass is traag en gedeeld).
+const MIN_AGE = { osm: DAY - 3600e3, places: 7 * DAY - 3600e3 };
 
-const extra = [...uuidByArea().entries()].filter(([id]) => id.startsWith(`${CITY.areaManagerId}_`)).map(([, u]) => u);
-const spdp = await loadSpdp(extra, { forceLive: true });
-if (spdp.origin !== 'live') throw new Error(`SPDP niet live opgehaald (${spdp.error})`);
-await writeSnapshot('spdp', spdp.data);
-console.log('spdp ok', Object.keys(spdp.data.statics).length, 'locaties');
-
-const only = process.argv[2]; // bijv. `npm run snapshot -- places` om alleen de bedrijven te verversen
-if (!only || only === 'osm') {
-  const osm = await loadOsm({ forceLive: true });
-  if (osm.origin !== 'live') throw new Error(`OSM niet live opgehaald (${osm.error})`);
-  await writeSnapshot('osm', osm.data);
-  console.log('osm  ok', osm.data.length, 'elementen');
+let failures = 0;
+async function refresh(name, loader, count) {
+  if (only && only !== name) return;
+  if (keepOnError && MIN_AGE[name]) {
+    const old = await readSnapshot(name);
+    if (old && Date.now() - old.savedAt < MIN_AGE[name]) {
+      console.log(`${name.padEnd(6)} overgeslagen (nog vers, ${new Date(old.savedAt).toISOString()})`);
+      return;
+    }
+  }
+  try {
+    const res = await loader();
+    if (res.origin !== 'live') throw new Error(res.error || `niet live (${res.origin})`);
+    await writeSnapshot(name, res.data);
+    console.log(`${name.padEnd(6)} ok (${count(res.data)})`);
+  } catch (err) {
+    failures++;
+    console.warn(`${name.padEnd(6)} MISLUKT: ${err.message}${keepOnError ? ' (oude data blijft staan)' : ''}`);
+    if (!keepOnError) process.exit(1);
+  }
 }
 
-if (!only || only === 'places') {
-  const places = await loadPlaces({ forceLive: true });
-  if (places.origin !== 'live') throw new Error(`Bedrijven niet live opgehaald (${places.error})`);
-  await writeSnapshot('places', places.data);
-  console.log('places ok', places.data.length, 'bedrijven');
+await refresh('rdw', () => loadRdw({ forceLive: true }), (d) => `${Object.values(d).reduce((s, v) => s + v.length, 0)} rijen`);
+// SPDP heeft de UUID's van de gemeentelijke garages uit RDW nodig (anders uit de bestaande momentopname).
+if (!only || only === 'spdp') {
+  if (only === 'spdp') await loadRdw({ fast: true });
+  const extra = [...uuidByArea().entries()].filter(([id]) => id.startsWith(`${CITY.areaManagerId}_`)).map(([, u]) => u);
+  await refresh('spdp', () => loadSpdp(extra, { forceLive: true }), (d) => `${Object.keys(d.statics).length} locaties`);
 }
+await refresh('osm', () => loadOsm({ forceLive: true }), (d) => `${d.length} parkeerplekken`);
+await refresh('places', () => loadPlaces({ forceLive: true }), (d) => `${d.length} bedrijven`);
+
+if (failures) console.warn(`${failures} bron(nen) niet ververst.`);

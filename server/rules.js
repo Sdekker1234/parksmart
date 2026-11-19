@@ -62,6 +62,8 @@ export function parseRules(input, now) {
       const h = num(m[1]);
       if (h <= 24) out.time = `${pad(m[2] ? h % 24 : dayHour(h % 24))}:${m[2] ?? '00'}`;
     });
+  // Losse tijd zonder "om", bijv. "zaterdag 14:00" (een eindtijd met "tot" wordt hieronder als duur gelezen)
+  if (!out.time) take(/(?<!tot )\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/, (m) => (out.time = `${pad(num(m[1]))}:${m[2]}`));
   const partOfDay = [
     [/\bvanavond\b|'s avonds|\bavond\b/, '19:00'],
     [/\bvanmiddag\b|'s middags/, '14:00'],

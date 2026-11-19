@@ -1,6 +1,7 @@
 // ParkSmart frontend: zoeken, filteren, kaart en advies.
 import { api } from './api.js';
 import { createMap } from './map.js';
+import { createBot } from './bot.js';
 import { eur, eurShort, duration, distance, localIso, nowRounded, arrivalLabel, timeAgo, esc } from './format.js';
 
 const $ = (s) => document.querySelector(s);
@@ -42,6 +43,7 @@ const state = {
 };
 
 let mapApi;
+let bot;
 let searchCtl;
 let adviceCtl;
 let adviceTimer;
@@ -66,6 +68,21 @@ async function init() {
   renderAiStatus();
   loadZones(s.now.slice(0, 10));
   window.addEventListener('resize', () => mapApi.invalidate());
+  bot = createBot({
+    tools: botTools,
+    rulesTurn,
+    aiAvailable: Boolean(s.ai?.enabled),
+    getContext: () => ({
+      now: localIso(new Date()),
+      destination: state.dest?.label ?? null,
+      duration: duration(state.durationMin),
+      arrival: state.arrivalMode === 'now' ? 'nu' : state.arrival,
+    }),
+    onPick: (id) => {
+      if (window.matchMedia('(max-width: 899px)').matches) bot.close(); // op mobiel: lijst en kaart weer zichtbaar
+      select(id, { open: true, scroll: true });
+    },
+  });
   restoreFromHash();
 }
 
@@ -83,20 +100,6 @@ async function loadZones(date) {
 
 // ---------- UI-koppelingen ----------
 function bindUi() {
-  // Tabs
-  for (const tab of $$('.tab')) {
-    tab.addEventListener('click', () => {
-      const ai = tab.id === 'tabAi';
-      $('#tabSearch').classList.toggle('is-active', !ai);
-      $('#tabAi').classList.toggle('is-active', ai);
-      $('#tabSearch').setAttribute('aria-selected', String(!ai));
-      $('#tabAi').setAttribute('aria-selected', String(ai));
-      $('#paneSearch').hidden = ai;
-      $('#paneAi').hidden = !ai;
-      (ai ? $('#aiInput') : $('#destInput')).focus();
-    });
-  }
-
   // Bestemming + suggesties
   const input = $('#destInput');
   let sugTimer;
@@ -170,17 +173,8 @@ function bindUi() {
 
   $('#locateBtn').addEventListener('click', useMyLocation);
 
-  // AI
-  $('#paneAi').addEventListener('submit', (e) => {
-    e.preventDefault();
-    aiSubmit($('#aiInput').value);
-  });
-  $('#aiInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      aiSubmit($('#aiInput').value);
-    }
-  });
+  // Assistent openen vanuit het zoekvak
+  $('#askBot').addEventListener('click', () => bot?.open());
 
   // Duur
   $('#durMinus').addEventListener('click', () => stepDuration(-1));
@@ -429,55 +423,180 @@ function useMyLocation() {
   );
 }
 
-// ---------- AI-zoekvraag ----------
-async function aiSubmit(text) {
-  const t = text.trim();
-  if (t.length < 3) return;
-  const btn = $('#aiSubmit');
-  const echo = $('#aiEcho');
-  btn.disabled = true;
-  btn.textContent = 'Even denken…';
-  try {
-    const r = await api.aiParse(t);
-    if (r.duration_minutes) {
-      state.durationMin = Math.min(7 * 1440, Math.max(15, Math.round(r.duration_minutes / 15) * 15));
-      syncDuration();
-    }
-    if (r.date || r.time) {
-      const now = localIso(nowRounded());
-      const date = r.date || now.slice(0, 10);
-      const time = r.time || (r.date && r.date !== now.slice(0, 10) ? '10:00' : now.slice(11, 16));
-      state.arrival = `${date}T${time}`;
-      if (state.arrival < now) state.arrival = now;
-      setArrivalMode('later', { search: false });
-    }
-    if (r.max_price_eur != null) state.filters.maxPrice = Math.min(40, Math.max(0, Math.round(r.max_price_eur)));
-    if (r.max_walk_minutes != null) state.filters.maxWalk = Math.min(40, Math.max(2, Math.round(r.max_walk_minutes)));
-    if (r.types?.length) state.filters.types = new Set(r.types);
-    if (r.sort) state.sort = r.sort;
-    syncFilters();
-    syncSort();
-    const via = r.source === 'ai' ? 'begrepen door Claude' : r.limited ? 'AI-limiet bereikt, begrepen met ingebouwde regels' : 'begrepen met ingebouwde regels';
-    let msg = `${esc(r.summary)} <small>(${via})</small>`;
-    if (r.place && r.placeInCity === false) {
-      msg += '<br>Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.';
-    } else if (r.place) {
-      setDestination(toDest(r.place), { search: false });
-    } else if (r.destination) {
-      msg += `<br>Ik kon "${esc(r.destination)}" niet op de kaart vinden. Tik op de kaart of typ een adres.`;
-    } else if (!state.dest) {
-      msg += '<br>Waar wil je heen? Noem een plek of tik op de kaart.';
-    }
-    echo.innerHTML = msg;
-    echo.hidden = false;
-    if (state.dest) runSearch({ fit: true });
-  } catch {
-    echo.textContent = 'Dat lukte niet. Probeer het opnieuw of gebruik het tabblad Bestemming.';
-    echo.hidden = false;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Zoek';
+// ---------- Zoekopdracht toepassen (door de assistent) ----------
+const ALL_TYPES = ['garage', 'street', 'pr', 'free'];
+const clampDuration = (m) => Math.min(7 * 1440, Math.max(15, Math.round(m / 15) * 15));
+
+// Zet bestemming, tijd en filters zoals de assistent ze wil en zoek opnieuw. `undefined` = niet wijzigen.
+async function applySearch({ dest, durationMin, arrival, maxPrice, maxWalk, types, sort }) {
+  if (durationMin) {
+    state.durationMin = clampDuration(durationMin);
+    syncDuration();
   }
+  if (arrival !== undefined) {
+    if (arrival) {
+      const now = localIso(nowRounded());
+      state.arrival = arrival < now ? now : arrival.slice(0, 16);
+      setArrivalMode('later', { search: false });
+    } else {
+      setArrivalMode('now', { search: false });
+    }
+  }
+  if (maxPrice !== undefined) state.filters.maxPrice = maxPrice == null ? null : Math.min(40, Math.max(0, Math.round(maxPrice)));
+  if (maxWalk !== undefined) state.filters.maxWalk = maxWalk == null ? DEFAULT_WALK : Math.min(40, Math.max(2, Math.round(maxWalk)));
+  if (types !== undefined) state.filters.types = new Set(types?.length ? types.filter((t) => ALL_TYPES.includes(t)) : ALL_TYPES);
+  if (!state.filters.types.size) state.filters.types = new Set(ALL_TYPES);
+  if (sort !== undefined) state.sort = sort || 'price';
+  syncFilters();
+  syncSort();
+  if (dest) setDestination(dest, { search: false });
+  clearTimeout(searchTimer);
+  return runSearch({ fit: true, advice: false });
+}
+
+// Compacte, feitelijke samenvatting van een optie voor de assistent.
+function optionFacts(o) {
+  const known = o.price.known && o.price.feasible;
+  return {
+    id: o.id,
+    name: o.name,
+    kind: o.kind,
+    total_eur: known ? o.price.total : null,
+    ...(known ? {} : { price_note: o.price.reason }),
+    per_hour_eur: known ? o.price.perHour ?? null : null,
+    ...(o.shuttle ? { shuttle: true, distance_km: Math.round(o.walk.straightM / 100) / 10 } : { walk_minutes: o.walk.minutes, walk_meters: o.walk.meters }),
+    source_trust: o.price.estimated ? 'estimate' : o.source.trust,
+    ...(o.live ? { occupancy: { vacant: o.live.vacant, capacity: o.live.capacity, reading_time: clockTime(o.live.updatedAt) } } : {}),
+    ...(o.notes?.length ? { notes: o.notes.slice(0, 2) } : {}),
+    ...(o.warnings?.length ? { warnings: o.warnings.slice(0, 1) } : {}),
+  };
+}
+
+function searchSummary() {
+  const { list, excluded, cheapest } = visible();
+  const byPrice = [...list].sort((a, b) => (a.price.known ? 0 : 1) - (b.price.known ? 0 : 1) || (a.price.total ?? 0) - (b.price.total ?? 0) || a.walk.minutes - b.walk.minutes);
+  const top = byPrice.slice(0, 8);
+  const closest = [...list].filter((o) => !o.shuttle && o.price.known && !top.includes(o)).sort((a, b) => a.walk.minutes - b.walk.minutes).slice(0, 2);
+  const d = state.dest;
+  return {
+    destination: {
+      label: d.label,
+      ...(d.place ? { name: d.place.name, category: d.place.kind, address: d.place.address, opening_hours_osm: d.place.hours ?? null } : {}),
+      ...(d.alternatives?.length ? { other_branches: d.alternatives.slice(0, 4).map((a) => a.label) } : {}),
+    },
+    arrival: state.results.arrival,
+    duration_minutes: state.durationMin,
+    duration_label: duration(state.durationMin),
+    filters: { max_price_eur: state.filters.maxPrice, max_walk_minutes: state.filters.maxWalk, types: [...state.filters.types], sort: state.sort },
+    options_in_list: list.length,
+    cheapest_id: cheapest?.id ?? null,
+    options: top.map(optionFacts),
+    ...(closest.length ? { closest_other_options: closest.map(optionFacts) } : {}),
+    ...(excluded.length ? { not_possible_for_this_duration: excluded.slice(0, 3).map((o) => ({ name: o.name, reason: o.price.reason })) } : {}),
+  };
+}
+
+const botTools = {
+  async search_parking(input) {
+    let dest = state.dest;
+    const q = String(input.destination || '').trim();
+    if (q && !/^huidige bestemming$/i.test(q)) {
+      const { result } = await api.geocode(q);
+      if (!result) return { error: `"${q}" niet gevonden in Den Bosch. Vraag de bestuurder om een andere naam, straat of plek.` };
+      dest = toDest(result);
+    }
+    if (!dest) return { error: 'Er is nog geen bestemming. Vraag waar de bestuurder heen gaat.' };
+    const res = await applySearch({
+      dest: dest === state.dest ? undefined : dest,
+      durationMin: input.duration_minutes || undefined,
+      arrival: input.arrival ?? null,
+      maxPrice: input.max_price_eur ?? null,
+      maxWalk: input.max_walk_minutes ?? null,
+      types: input.types ?? null,
+      sort: input.sort ?? null,
+    });
+    if (!res.ok) return { error: res.message };
+    return searchSummary();
+  },
+  async find_place({ query }) {
+    const { result } = await api.geocode(String(query || ''));
+    if (!result) return { matches: [] };
+    const m = (r) => ({ name: r.name ?? r.label, category: r.kind, address: r.address ?? null, opening_hours_osm: r.hours ?? null });
+    return { best_match: m(result), other_matches: (result.alternatives ?? []).slice(0, 5).map(m), ...(result.note ? { note: result.note } : {}) };
+  },
+  async get_parking_details({ option_id }) {
+    const o = findOption(option_id);
+    if (!o) return { error: 'Onbekende optie. Zoek eerst opnieuw met search_parking.' };
+    return {
+      ...optionFacts(o),
+      address: o.address ?? null,
+      capacity: o.capacity ?? null,
+      tariff: o.details?.tariff ?? null,
+      paid_times: o.details?.paidTimes ?? null,
+      price_breakdown: o.price.breakdown.map((b) => ({ label: b.label, minutes: b.minutes, cost_eur: b.cost })),
+      ...(o.price.assumption ? { assumption: o.price.assumption } : {}),
+      source: o.source.label,
+    };
+  },
+};
+
+// Zonder AI: de vraag ontleden met de ingebouwde regels, zoeken en een kort antwoord samenstellen.
+const SMALLTALK = /^\s*(hoi|hallo|hey|hee|hi|goedemorgen|goedemiddag|goedenavond|help|wat kun je|wat doe je|hoe werkt|wie ben je|bedankt|dank je|dankjewel|thanks|top|ok|oké)\b/i;
+const HELP_TEXT =
+  'Ik zoek de goedkoopste en handigste parkeerplek in Den Bosch. Noem waar je heen gaat en hoe lang je blijft, bijvoorbeeld:\n- **2 uur bij de HEMA**\n- **zaterdag 14:00 drie uur naar de Sint-Jan, max 10 minuten lopen**\n- **gratis parkeren bij het station**\nDaarna kun je doorvragen, zoals "en voor 4 uur?".';
+const normTxt = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ');
+const WEAK = new Set(['de', 'het', 'een', 'van', 'bij', 'naar', 'wat', 'kun', 'kan', 'hoe', 'wie', 'wil', 'ik', 'je', 'jij', 'hoi', 'hallo']);
+// Lijkt het gevonden adres echt op wat de bestuurder typte? (voorkomt willekeurige treffers)
+function plausiblePlace(query, place) {
+  if (String(place.id || '').startsWith('lm-')) return true;
+  const label = normTxt(place.label);
+  return normTxt(query).split(/\s+/).some((t) => t.length >= 3 && !WEAK.has(t) && label.includes(t));
+}
+
+async function rulesTurn(text) {
+  if (SMALLTALK.test(text) && !/\d|uur|parkeer|parkeren|gratis|goedkoop/i.test(text)) {
+    return { text: /bedankt|dank|thanks|top|ok/i.test(text) ? 'Graag gedaan! Vraag gerust verder als je ergens anders heen wilt.' : HELP_TEXT };
+  }
+  const r = await api.aiParse(text);
+  let dest;
+  if (r.place && r.placeInCity === false) return { text: 'Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.' };
+  if (r.place && !plausiblePlace(r.destination, r.place)) {
+    if (!state.dest || !(r.duration_minutes || r.date || r.time)) return { text: `Ik weet niet zeker welke plek je bedoelt met "${r.destination}". Noem een winkel, straat of bekende plek in Den Bosch.\n\n${HELP_TEXT}` };
+    r.place = null; // alleen een nieuwe tijd/duur: huidige bestemming houden
+    r.destination = null;
+  }
+  if (r.place) dest = toDest(r.place);
+  else if (r.destination) return { text: `Ik kan "${r.destination}" niet vinden in Den Bosch. Probeer een winkelnaam, straat of bekende plek.` };
+  else if (!state.dest) return { text: 'Waar wil je heen? Noem een winkel, straat of plek in Den Bosch, bijvoorbeeld: **2 uur bij de HEMA**.' };
+  let arrival;
+  if (r.date || r.time) {
+    const now = localIso(nowRounded());
+    const date = r.date || now.slice(0, 10);
+    arrival = `${date}T${r.time || (date !== now.slice(0, 10) ? '10:00' : now.slice(11, 16))}`;
+  }
+  const res = await applySearch({
+    dest,
+    durationMin: r.duration_minutes || undefined,
+    arrival,
+    maxPrice: r.max_price_eur ?? undefined,
+    maxWalk: r.max_walk_minutes ?? undefined,
+    types: r.types ?? undefined,
+    sort: r.sort ?? undefined,
+  });
+  if (!res.ok) return { text: res.message };
+  const sum = searchSummary();
+  const priced = sum.options.filter((o) => o.total_eur != null);
+  if (!priced.length) return { text: 'Met deze filters vind ik geen plek met een bekende prijs. Probeer een langere looptijd of hogere maximumprijs.', results: sum };
+  const a = await api.advice({
+    destination: state.dest.label,
+    destination_place: state.dest.place ? { name: state.dest.place.name, kind: state.dest.place.kind, address: state.dest.place.address, hours: state.dest.place.hours } : null,
+    arrival: sum.arrival,
+    duration_label: sum.duration_label,
+    options: priced.map((o) => ({ id: o.id, name: o.name, kind: o.kind, total: o.total_eur, per_hour: o.per_hour_eur, walk_min: o.walk_minutes ?? 0, walk_m: o.walk_meters ?? 0, shuttle: o.shuttle, source_trust: o.source_trust, notes: o.notes, warnings: o.warnings })),
+  });
+  const assumed = r.duration_minutes ? '' : `\n\nIk ga uit van ${sum.duration_label}; noem een andere duur als je langer of korter blijft.`;
+  const hours = state.dest.place?.hoursNl ? `\n\nOpeningstijden ${state.dest.place.name} (OpenStreetMap): ${state.dest.place.hoursNl}.` : '';
+  return { text: `${a.advice}${a.tip ? `\n\nTip: ${a.tip}` : ''}${hours}${assumed}`, results: sum };
 }
 
 // ---------- Zoeken ----------
@@ -487,8 +606,10 @@ function scheduleSearch() {
   searchTimer = setTimeout(() => runSearch({ fit: false }), 250);
 }
 
-async function runSearch({ fit = false } = {}) {
-  if (!state.dest) return;
+// Geeft { ok, message } terug (de assistent gebruikt dat).
+// advice: false = geen apart adviesblok (de assistent legt het zelf uit in de chat).
+async function runSearch({ fit = false, advice = true } = {}) {
+  if (!state.dest) return { ok: false, message: 'Er is nog geen bestemming gekozen.' };
   searchCtl?.abort();
   searchCtl = new AbortController();
   const arrival = currentArrival();
@@ -503,13 +624,20 @@ async function runSearch({ fit = false } = {}) {
     mapApi.clearRoute();
     mapApi.highlightZone(null);
     loadZones(arrival.slice(0, 10));
-    render({ fit });
+    render({ fit, advice });
+    if (!advice) {
+      clearTimeout(adviceTimer);
+      $('#advice').hidden = true;
+    }
     updateHash();
+    return { ok: true };
   } catch (err) {
-    if (err.name === 'AbortError') return;
+    if (err.name === 'AbortError') return { ok: false, message: 'De zoekopdracht is vervangen door een nieuwere.' };
     state.results = null;
     render();
-    showMessage(err.body?.error === 'outside' ? err.message : 'Ophalen van parkeeropties mislukt. Probeer het zo opnieuw.', true);
+    const message = err.body?.error === 'outside' ? err.message : 'Ophalen van parkeeropties mislukt. Probeer het zo opnieuw.';
+    showMessage(message, true);
+    return { ok: false, message };
   } finally {
     $('#results').removeAttribute('aria-busy');
   }
@@ -785,14 +913,8 @@ function showMessage(text, isError = false) {
 }
 
 function renderAiStatus() {
-  const ai = state.status.ai;
-  const el = $('#aiStatus');
-  el.classList.toggle('is-on', ai.enabled);
-  el.textContent = ai.enabled ? `AI: Claude (${ai.model})` : 'AI uit: ingebouwde regels';
-  el.title = ai.enabled ? 'Claude zet je zin om in zoekopdrachten en schrijft het advies.' : `${ai.reason}. Zet ANTHROPIC_API_KEY in .env om Claude te gebruiken.`;
-  $('#infoAi').textContent = ai.enabled
-    ? `AI staat aan (${ai.model}). Claude begrijpt je zoekvraag en schrijft het advies. De prijzen rekent ParkSmart zelf uit; de AI krijgt alleen die berekende feiten.`
-    : `AI staat uit (${ai.reason}). Zoeken in gewone taal en het advies werken dan met ingebouwde regels.`;
+  $('#infoAi').textContent =
+    'De ParkSmart-assistent gebruikt Claude als die is ingesteld. Claude kiest welke zoekopdrachten nodig zijn, maar de prijzen rekent ParkSmart zelf uit uit de bronnen hierboven; de AI krijgt alleen die berekende feiten. Zonder AI beantwoordt de assistent je vragen met ingebouwde regels.';
 }
 
 function renderDataLine() {

@@ -12,6 +12,8 @@ import { search, zonesForMap } from './search.js';
 import { suggest, searchOne, reverseLabel } from './geocode.js';
 import { parseArrival } from './pricing.js';
 import { aiStatus, parseQuery, advise } from './ai.js';
+import Anthropic from '@anthropic-ai/sdk';
+import { buildRequest, validateChat, toClient, ChatError } from '../shared/bot.js';
 import { inBBox } from './geo.js';
 import { fetchJson } from './cache.js';
 
@@ -61,7 +63,9 @@ const LIMITS = {
   apiPer10Min: Number(process.env.API_LIMIT_PER_10_MIN) || 600,
   aiPerHour: Number(process.env.AI_LIMIT_PER_HOUR) || 30,
   aiPerDay: Number(process.env.AI_DAILY_LIMIT) || 200,
+  botPerHour: Number(process.env.BOT_LIMIT_PER_HOUR) || 60, // één vraag aan de assistent = meestal 2-3 aanroepen
 };
+let botClient = null;
 const buckets = new Map(); // key -> { start, count }
 function hit(key, windowMs, max) {
   const now = Date.now();
@@ -304,6 +308,32 @@ async function handle(req, res) {
       })),
     };
     return send(res, 200, await advise(ctx, { allowAi: () => aiAllowed(req) }));
+  }
+
+  // ParkSmart-assistent: één Claude-aanroep per verzoek; de tools draaien in de browser.
+  if (p === '/api/bot' && req.method === 'POST') {
+    if (!aiStatus().enabled) return send(res, 503, { error: 'not_configured', message: 'Er is geen API-sleutel ingesteld.' });
+    const ip = clientIp(req);
+    const day = new Date().toISOString().slice(0, 10);
+    if (!hit(`bot:${ip}`, 3600e3, LIMITS.botPerHour) || !hit(`ai-day:${day}`, 24 * 3600e3, LIMITS.aiPerDay * 3)) {
+      return send(res, 429, { error: 'rate_limited', message: 'De assistent heeft even pauze nodig. Probeer het later opnieuw.' });
+    }
+    let chat;
+    try {
+      chat = validateChat(await readBody(req, 300 * 1024));
+    } catch (err) {
+      return send(res, 400, { error: 'invalid', message: err instanceof ChatError ? err.message : 'Ongeldige aanvraag' });
+    }
+    botClient ??= new Anthropic({ maxRetries: 1, timeout: 60_000 });
+    try {
+      return send(res, 200, toClient(await botClient.beta.messages.create(buildRequest(chat))));
+    } catch (err) {
+      if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return send(res, 503, { error: 'not_configured', message: 'De API-sleutel werkt niet.' });
+      if (err instanceof Anthropic.RateLimitError) return send(res, 429, { error: 'rate_limited', message: 'Het is even druk. Probeer het zo opnieuw.' });
+      if (err instanceof Anthropic.BadRequestError) return send(res, 400, { error: 'invalid', message: 'Dit gesprek kan ik niet verwerken; start een nieuw gesprek.' });
+      console.warn('[bot]', err.message);
+      return send(res, 502, { error: 'upstream', message: 'De AI is nu niet bereikbaar.' });
+    }
   }
 
   if (p.startsWith('/api/')) return send(res, 404, { error: 'Onbekende API-route' });

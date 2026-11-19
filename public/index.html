@@ -39,15 +39,7 @@
 
     <section class="panel" aria-label="Zoeken en resultaten">
       <div class="search-card">
-        <div class="tabs" role="tablist" aria-label="Zoekmethode">
-          <button role="tab" class="tab is-active" id="tabSearch" aria-selected="true" aria-controls="paneSearch" type="button">Bestemming</button>
-          <button role="tab" class="tab" id="tabAi" aria-selected="false" aria-controls="paneAi" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z" fill="currentColor"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" fill="currentColor"/></svg>
-            Vraag het AI
-          </button>
-        </div>
-
-        <div class="pane" id="paneSearch" role="tabpanel" aria-labelledby="tabSearch">
+        <div class="pane" id="paneSearch">
           <label class="field-label" for="destInput">Waar wil je heen?</label>
           <div class="dest-field">
             <svg class="dest-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6.5-5.6-6.5-11A6.5 6.5 0 0 1 18.5 10c0 5.4-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2.3" fill="currentColor"/></svg>
@@ -59,16 +51,10 @@
           </div>
           <div class="quick" id="quickDest" aria-label="Snelkeuze bestemmingen"></div>
         </div>
-
-        <form class="pane" id="paneAi" role="tabpanel" aria-labelledby="tabAi" hidden>
-          <label class="field-label" for="aiInput">Zeg het in je eigen woorden</label>
-          <textarea id="aiInput" rows="2" maxlength="500" placeholder="Bijv. waar parkeer ik het goedkoopst voor de HEMA, zaterdag om 14:00 voor 2 uur?"></textarea>
-          <div class="ai-row">
-            <span class="ai-status" id="aiStatus">AI laden…</span>
-            <button class="btn btn-primary" id="aiSubmit" type="submit">Zoek</button>
-          </div>
-          <p class="ai-echo" id="aiEcho" hidden></p>
-        </form>
+        <button type="button" class="ask-bot" id="askBot">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z" fill="currentColor"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" fill="currentColor"/></svg>
+          <span><b>Vraag het de assistent</b><small>Bijv. "waar parkeer ik goedkoop bij de HEMA, zaterdag 2 uur?"</small></span>
+        </button>
 
         <div class="dest-info" id="destInfo" hidden aria-live="polite"></div>
 
@@ -145,6 +131,38 @@
       </footer>
     </section>
   </main>
+
+  <!-- ParkSmart-assistent -->
+  <button type="button" class="bot-fab" id="botFab" aria-controls="bot" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M12 7.2l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="currentColor"/></svg>
+    <span>Assistent</span>
+  </button>
+  <section class="bot" id="bot" role="dialog" aria-modal="false" aria-labelledby="botTitle" hidden>
+    <header class="bot-head">
+      <div class="bot-avatar" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 2.5l1.9 5.6 5.6 1.9-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.9z" fill="currentColor"/></svg>
+      </div>
+      <div class="bot-title">
+        <h2 id="botTitle">ParkSmart-assistent</h2>
+        <span class="bot-mode" id="botMode">…</span>
+      </div>
+      <button type="button" class="icon-btn bot-reset" id="botReset" title="Nieuw gesprek" aria-label="Nieuw gesprek">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="icon-btn" id="botClose" aria-label="Assistent sluiten">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+    </header>
+    <div class="bot-log" id="botLog" aria-live="polite"></div>
+    <form class="bot-form" id="botForm">
+      <label class="sr-only" for="botInput">Je vraag</label>
+      <textarea id="botInput" rows="1" maxlength="600" placeholder="Bijv. 2 uur bij de HEMA, zaterdag om 14:00"></textarea>
+      <button type="submit" class="bot-send" id="botSend" aria-label="Versturen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12l16-8-6 16-2.5-6.5z" fill="currentColor"/></svg>
+      </button>
+    </form>
+    <p class="bot-disclaimer">Prijzen berekent ParkSmart uit open data. Controleer ter plaatse de borden.</p>
+  </section>
 
   <dialog class="info-dialog" id="infoDialog" aria-labelledby="infoTitle">
     <form method="dialog">

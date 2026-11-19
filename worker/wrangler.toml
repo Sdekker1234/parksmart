@@ -1,0 +1,14 @@
+# Cloudflare Worker voor de ParkSmart-assistent (gratis plan is genoeg).
+# Deployen:  cd worker  &&  npx wrangler@4 deploy
+# Sleutel:   npx wrangler@4 secret put ANTHROPIC_API_KEY   (je plakt de sleutel zelf in de terminal)
+name = "parksmart-bot"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Alleen deze sites mogen de assistent gebruiken (komma-gescheiden).
+ALLOWED_ORIGINS = "https://sdekker1234.github.io,http://localhost:3000,http://localhost:3300"
+# Maximaal aantal Claude-aanroepen (één vraag kost er meestal 2-3).
+LIMIT_PER_HOUR = "60"
+LIMIT_PER_DAY = "400"

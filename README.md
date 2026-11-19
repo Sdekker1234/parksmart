@@ -65,14 +65,44 @@ Boven de AI-limiet valt de app terug op de ingebouwde regels, dus hij blijft wer
 - **Straatparkeren** gaat vanzelf: RDW publiceert de tarieven van het volgende jaar al vooruit (2027 staat er al in).
 - **Garages en transferia** komen uit het gemeentebesluit. Dat verschijnt meestal half december op [lokaleregelgeving.overheid.nl](https://lokaleregelgeving.overheid.nl). Voeg dan in `server/config.js` bij `DECREE_TARIFFS` een blok toe voor het nieuwe jaar. Tot die tijd toont de app garageprijzen in het nieuwe jaar met **≈** en het label **Schatting**.
 
-## AI (Claude)
+## ParkSmart-assistent (AI-bot)
 
-ParkSmart gebruikt Claude (`claude-opus-5-5`) voor twee dingen:
+Rechtsonder zit de **Assistent**: een chatbot op basis van Claude (`claude-opus-5-5`). Je vraagt bijvoorbeeld *"waar parkeer ik het goedkoopst bij de HEMA, zaterdag om 14:00?"* en daarna *"en voor 4 uur?"*. Claude beslist zelf welke tools hij nodig heeft:
 
-1. **Vraag het AI**: je typt een zin als *"waar parkeer ik het goedkoopst voor de HEMA, zaterdag om 14:00 voor 2 uur?"* en Claude maakt daar zoekparameters van (bestemming, datum, tijd, duur, filters). De bestemming mag een winkel- of bedrijfsnaam zijn; heeft een keten meerdere vestigingen, dan kun je met één tik wisselen.
-2. **Advies**: Claude krijgt de door de app berekende opties en legt in een paar zinnen uit wat de slimste keuze is, inclusief de afweging tussen prijs en looptijd. Ga je naar een winkel waarvan de openingstijden bekend zijn, dan meldt Claude ook als die dicht is bij aankomst of sluit tijdens je bezoek.
+| Tool | Wat |
+|---|---|
+| `search_parking` | Zoekt en berekent parkeeropties voor een bestemming, tijd en duur (zet ze ook op de kaart en in de lijst) |
+| `find_place` | Zoekt winkels, bedrijven en adressen, met openingstijden en andere vestigingen |
+| `get_parking_details` | Prijsopbouw, tarief, betaaltijden en bezetting van één optie |
 
-Prijzen rekent de app altijd zelf uit. Claude krijgt alleen die berekende feiten en heeft de opdracht niets te verzinnen. De antwoorden komen terug als gestructureerde JSON (`output_config.format`), zodat de app ze veilig kan gebruiken. Ik heb ook server-side fallbacks aangezet (`fallbacks: "default"`): als het model een verzoek weigert, probeert de API automatisch een passend ander model.
+De tools draaien in de browser met de rekenmotor van de app. Claude krijgt alleen de berekende feiten en heeft de opdracht geen prijzen, openingstijden of vrije plekken te verzinnen. Model, systeemprompt en tools liggen vast in `shared/bot.js`; de browser kan alleen berichten meesturen. Ik heb server-side fallbacks aangezet (`fallbacks: "default"`): weigert het model een verzoek, dan probeert de API automatisch een passend ander model. In de tool-lus gebruik ik prompt-caching, zodat het herhaalde deel van het gesprek veel goedkoper is.
+
+Zonder AI werkt de assistent ook, met ingebouwde regels (minder slim: houd de vraag kort).
+
+### De assistent online aanzetten (Cloudflare Worker)
+
+GitHub Pages kan geen geheime API-sleutel bewaren. Daarom doet een kleine, gratis [Cloudflare Worker](https://workers.cloudflare.com) (`worker/`) de Claude-aanroep. Die is altijd direct beschikbaar, laat alleen jouw site toe en heeft limieten per bezoeker en per dag.
+
+1. Maak een API-sleutel in de [Anthropic Console](https://console.anthropic.com) en stel daar een **maandelijkse uitgavenlimiet** in. Dat is je belangrijkste rem.
+2. Maak een gratis Cloudflare-account.
+3. In een terminal, in de map `worker`:
+   ```bash
+   npx wrangler@4 login
+   ```
+   ```bash
+   npx wrangler@4 deploy
+   ```
+   ```bash
+   npx wrangler@4 secret put ANTHROPIC_API_KEY
+   ```
+   Bij de laatste stap plak je zelf je sleutel; die komt nooit in de code of in de browser.
+4. Zet het adres dat `deploy` toont (bijv. `https://parksmart-bot.jouwnaam.workers.dev/chat`) in `public/js/config.js` bij `BOT_URL` en push. De site laat dan "Claude" zien in de assistent.
+
+Limieten aanpassen kan in `worker/wrangler.toml` (`LIMIT_PER_HOUR`, `LIMIT_PER_DAY`; één vraag kost meestal 2-3 aanroepen).
+
+### Claude in de servervariant
+
+Met `npm start` (of Render) gebruikt de assistent `/api/bot` op de eigen server. Daarnaast zet Claude daar vrije tekst om in zoekparameters en schrijft het adviesblok boven de resultaten. Prijzen rekent de app altijd zelf uit. Claude krijgt alleen die berekende feiten en heeft de opdracht niets te verzinnen. De antwoorden komen terug als gestructureerde JSON (`output_config.format`), zodat de app ze veilig kan gebruiken. Ik heb ook server-side fallbacks aangezet (`fallbacks: "default"`): als het model een verzoek weigert, probeert de API automatisch een passend ander model.
 
 Zet je sleutel in een `.env`-bestand (zie `.env.example`):
 
@@ -129,7 +159,9 @@ server/
   geocode.js      PDOK + Nominatim + snelkeuzes
   ai.js           Claude: zoekvraag begrijpen en advies schrijven
   rules.js        Terugval zonder AI
-public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart; local-api.js voor de statische versie)
+shared/bot.js     Assistent: systeemprompt, tools en validatie (server en Worker)
+worker/           Cloudflare Worker die de Claude-aanroep doet voor de online site
+public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart; bot.js = de assistent; local-api.js voor de statische versie)
 web/cache.js      Browserversie van de cache voor GitHub Pages
 data/snapshot/    Momentopname van de bronnen voor offline gebruik
 scripts/          make-snapshot.js, fetch-live.js (bezetting), build-pages.js (statische site)

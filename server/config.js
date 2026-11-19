@@ -183,4 +183,5 @@ export const LANDMARKS = [
   { id: 'lm-vliert', label: 'Stadion De Vliert', aliases: ['de vliert', 'stadion', 'fc den bosch'], lat: 51.701655, lon: 5.32982 },
   { id: 'lm-provinciehuis', label: 'Provinciehuis Noord-Brabant', aliases: ['provinciehuis', 'provincie'], lat: 51.677904, lon: 5.329621 },
   { id: 'lm-verkade', label: 'Verkadefabriek', aliases: ['verkadefabriek', 'verkade'], lat: 51.695792, lon: 5.297797 },
+  { id: 'lm-bibliotheek', label: 'Bibliotheek Huis73', aliases: ['bibliotheek', 'huis73', 'huis 73'], lat: 51.688876, lon: 5.307967 },
 ];

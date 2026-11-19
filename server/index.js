@@ -269,7 +269,7 @@ async function handle(req, res) {
     if (!body.text || typeof body.text !== 'string') return bad(res, 'text ontbreekt');
     const parsed = await parseQuery(body.text, nowNL(), { allowAi: () => aiAllowed(req) });
     let place = null;
-    if (parsed.destination) place = await searchOne(parsed.destination);
+    if (parsed.destination && !(parsed.topic === 'off_topic' && parsed.destination_guess)) place = await searchOne(parsed.destination);
     return send(res, 200, { ...parsed, place, placeInCity: place ? inBBox(place, CITY.bbox) : null });
   }
 

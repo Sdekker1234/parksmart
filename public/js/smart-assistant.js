@@ -14,7 +14,7 @@ const RE = {
   navigate: /\b(navigeer|navigatie|routebeschrijving|route ernaartoe|breng me|hoe kom ik er)\b/,
   detail: /\b(wat kost|hoeveel kost|prijs van|prijsopbouw|vertel meer|meer over|meer info|details?|hoe zit het met|info over|tarief van|uitleg over)\b/,
   hours: /\b(open|gesloten|dicht|sluit|sluiten|openingstijden|openingstijd|hoe laat)\b/,
-  closer: /\b(dichterbij|dichter bij|minder lopen|korter lopen|minder ver|niet zo ver|dichtstbijzijnde|zo dichtbij mogelijk)\b/,
+  closer: /\b(dichterbij|dichter bij|minder lopen|korter lopen|minder ver|niet zo ver|dichtstbijzijnde|zo dichtbij mogelijk|zonder (veel )?lopen|weinig lopen|zo min mogelijk lopen)\b/,
   cheaper: /\b(goedkoper|het goedkoopst|goedkoopste)\b/,
   reset: /\b(alle opties|alles laten zien|zonder filters?|filters? weg|reset)\b/,
   why: /^(waarom|hoezo)\b/,
@@ -26,8 +26,8 @@ const ORDINALS = [
   [/\b(derde|3e|nummer 3|optie 3)\b/, 2],
 ];
 // Woorden die niets zeggen over welke optie bedoeld wordt.
-const GENERIC = new Set(['parkeergarage', 'garage', 'zone', 'parkeren', 'gratis', 'transferium', 'terrein', 'parkeerterrein', 'straat', 'langs', 'weg', 'aan', 'bij', 'de', 'het', 'van', 'den', 'bosch', 'hertogenbosch', 'station', 'p+r', 'pr', 't', 'uur']);
-const COMMON = new Set(['hoe', 'laat', 'sluit', 'sluiten', 'open', 'gesloten', 'dicht', 'openingstijden', 'is', 'zijn', 'de', 'het', 'een', 'op', 'aan', 'in', 'bij', 'van', 'wat', 'wanneer', 'vandaag', 'morgen', 'nog', 'zaterdag', 'zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'straat']);
+const GENERIC = new Set(['parkeergarage', 'garage', 'zone', 'parkeren', 'gratis', 'transferium', 'terrein', 'parkeerterrein', 'straat', 'langs', 'weg', 'aan', 'bij', 'de', 'het', 'van', 'den', 'bosch', 'hertogenbosch', 'station', 'p+r', 'pr', 't', 'uur', 'q', 'park']);
+const COMMON = new Set(['gaat', 'gaan', 'hij', 'zij', 'die', 'deze', 'daar', 'hoe', 'laat', 'sluit', 'sluiten', 'open', 'gesloten', 'dicht', 'openingstijden', 'is', 'zijn', 'de', 'het', 'een', 'op', 'aan', 'in', 'bij', 'van', 'wat', 'wanneer', 'vandaag', 'morgen', 'nog', 'zaterdag', 'zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'straat']);
 
 const HELP =
   'Ik zoek de goedkoopste en handigste parkeerplek in Den Bosch, met echte tarieven. Zo kun je het vragen:\n' +
@@ -36,6 +36,7 @@ const HELP =
 
 export function createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl }) {
   let last = null; // laatste zoekresultaat (zelfde volgorde als het kaartje in de chat)
+  let lastPlace = null; // laatste winkel waar een openingstijdenvraag over ging
 
   const priced = (sum) => (sum?.options ?? []).filter((o) => o.total_eur != null);
   const price = (o) => (o.total_eur === 0 ? 'gratis' : `${o.source_trust === 'estimate' ? '≈ ' : ''}${eur(o.total_eur)}`);
@@ -45,10 +46,37 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     return o ? { label: `Navigeer naar ${name}`, href: navUrl(o) } : null;
   };
 
+  // Lijkt de gevonden plek op wat de bestuurder typte? Naam, adres of soort zaak, met ruimte voor een typfout.
   function plausible(query, place) {
     if (String(place.id || '').startsWith('lm-')) return true;
-    const label = norm(place.label);
-    return norm(query).split(' ').some((t) => t.length >= 3 && !GENERIC.has(t) && !['wat', 'kun', 'kan', 'hoe', 'wil'].includes(t) && label.includes(t));
+    const hay = norm(`${place.label} ${place.kind ?? ''}`);
+    const hayWords = hay.split(' ');
+    return norm(query)
+      .split(' ')
+      .filter((t) => t.length >= 3 && !GENERIC.has(t) && !['wat', 'kun', 'kan', 'hoe', 'wil'].includes(t))
+      .some((t) => hay.includes(t) || (t.length >= 4 && hayWords.some((w) => close(t, w))));
+  }
+  // Maximaal één letter verschil (toevoegen, weglaten of vervangen)
+  function close(a, b) {
+    if (Math.abs(a.length - b.length) > 1 || a === b) return a === b;
+    let i = 0;
+    let j = 0;
+    let diff = 0;
+    while (i < a.length && j < b.length) {
+      if (a[i] === b[j]) {
+        i++;
+        j++;
+        continue;
+      }
+      if (++diff > 1) return false;
+      if (a.length > b.length) i++;
+      else if (b.length > a.length) j++;
+      else {
+        i++;
+        j++;
+      }
+    }
+    return diff + (a.length - i) + (b.length - j) <= 1;
   }
 
   function visitNote(sum) {
@@ -134,7 +162,7 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       const phrase = toks.join(' ');
       let score = 0;
       if (phrase.length >= 4 && ` ${t} `.includes(` ${phrase} `)) score = 10 + phrase.length;
-      else score = toks.filter((w) => w.length >= 6 && t.includes(w)).length;
+      else score = toks.filter((w) => w.length >= 6 && ` ${t} `.includes(` ${w} `)).length; // heel woord: "tolbrug" ≠ "tolbrugstraat"
       if (score && (!best || score > best.score)) best = { o, score };
     }
     return best?.o ?? null;
@@ -162,21 +190,30 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
   async function hoursAnswer(text, parsed) {
     let place = parsed.place && parsed.place.hours !== undefined ? parsed.place : null;
     if (!place && parsed.place && plausible(parsed.destination, parsed.place)) place = parsed.place;
+    if (!place && lastPlace && (!parsed.destination || parsed.destination_guess)) place = lastPlace; // "hoe laat sluit hij?"
     if (!place && state.dest?.place) place = { ...state.dest.place, label: state.dest.label };
-    if (!place) return { text: 'Van welke winkel of plek wil je de openingstijden weten? Bijvoorbeeld: **is de HEMA zaterdag open?**' };
-    const name = place.name ?? place.label;
-    const isBusiness = String(place.id || '').startsWith('place-');
-    if (!isBusiness && !String(place.id || '').startsWith('lm-')) {
-      // Bijv. "Jumbo op de Vughterstraat" terwijl daar geen Jumbo zit: zoek de winkelnaam los op en noem de vestigingen.
-      for (const word of norm(text).split(' ').filter((w) => w.length >= 3 && !COMMON.has(w) && !norm(place.label).includes(w))) {
+    const isBusiness = (p) => String(p?.id || '').startsWith('place-');
+    const isLandmark = (p) => String(p?.id || '').startsWith('lm-');
+    if (!place || (!isBusiness(place) && !isLandmark(place))) {
+      // Winkelnaam ergens in de zin ("Wanneer gaat de Zara open?", "de Kruidvat op de Hooge Steenweg"):
+      // zoek elk woord los op en kies de vestiging in de genoemde straat, of de dichtstbijzijnde bij het centrum.
+      const street = place && !isBusiness(place) ? norm(place.label.split(',')[0]) : null;
+      for (const word of norm(text).split(' ').filter((w) => w.length >= 3 && !COMMON.has(w) && !(street && street.includes(w)))) {
         const { results = [] } = await api.suggest(word).catch(() => ({}));
-        const biz = results.filter((r) => String(r.id).startsWith('place-') && norm(r.name).startsWith(word)).slice(0, 4);
-        if (biz.length) {
-          const street = place.kind === 'Straat' ? ` aan de ${place.label.split(',')[0]}` : '';
-          return { text: `Ik vind geen ${biz[0].name}${street}. Deze vestigingen ken ik wel:\n${biz.map((b) => `- ${b.label}${b.hoursNl ? ` (${b.hoursNl})` : ''}`).join('\n')}` };
+        const biz = results.filter((r) => isBusiness(r) && norm(r.name).startsWith(word));
+        if (!biz.length) continue;
+        const onStreet = street ? biz.find((b) => norm(b.address ?? '').includes(street)) : null;
+        if (street && !onStreet) {
+          return { text: `Ik vind geen ${biz[0].name} aan de ${place.label.split(',')[0]}. Deze vestigingen ken ik wel:\n${biz.slice(0, 4).map((b) => `- ${b.label}${b.hoursNl ? ` (${b.hoursNl})` : ''}`).join('\n')}` };
         }
+        place = onStreet ?? biz[0];
+        if (!onStreet && biz.length > 1) place = { ...place, others: biz.slice(1, 4) };
+        break;
       }
     }
+    if (place) lastPlace = place;
+    if (!place) return { text: 'Van welke winkel of plek wil je de openingstijden weten? Bijvoorbeeld: **is de HEMA zaterdag open?**' };
+    const name = place.name ?? place.label;
     if (!place.hours) return { text: `Van ${name} heb ik geen openingstijden. Kijk voor de zekerheid op hun website.` };
     let when = state.arrivalMode === 'later' && state.arrival ? new Date(state.arrival) : new Date();
     if (parsed.date || parsed.time) {
@@ -190,63 +227,114 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     if (v?.hours) lines.push(`Volgens OpenStreetMap is **${name}**${place.address ? ` (${place.address})` : ''} op ${day} ${v.hours === 'gesloten' ? '**gesloten**' : `open van **${v.hours}**`}.`);
     if (v && (parsed.time || state.arrivalMode === 'later') && v.status === 'opens_later') lines.push(`Om ${when.toTimeString().slice(0, 5)} is het nog dicht; het gaat om ${v.opensAt} open.`);
     if (place.hoursNl) lines.push(`Alle openingstijden: ${place.hoursNl}.`);
+    if (place.others?.length) lines.push(`Andere vestigingen: ${place.others.map((b) => b.address ?? b.label).join(' · ')}.`);
     lines.push('Zal ik een parkeerplek zoeken? Zeg bijvoorbeeld **2 uur** of **zaterdag 14:00 voor 3 uur**.');
     return { text: lines.join('\n\n') };
   }
 
   // ---------- Hoofdlogica ----------
   async function turn(text) {
+    const r = await route(text);
+    return r;
+  }
+
+  // Elk antwoord krijgt een intent-label (handig voor het testprogramma scripts/eval-bot.js).
+  async function route(text) {
     const t = norm(text);
-    if (!t) return { text: HELP };
+    if (!t) return { intent: 'help', text: HELP };
     const words = t.split(' ').length;
-    if (RE.thanks.test(t) && words <= 4) return { text: 'Graag gedaan! Vraag gerust verder als je ergens anders heen wilt of de tijd verandert.' };
-    if ((RE.greet.test(t) && words <= 4) || RE.help.test(t)) return { text: HELP };
+    if (RE.thanks.test(t) && words <= 4) return { intent: 'thanks', text: 'Graag gedaan! Vraag gerust verder als je ergens anders heen wilt of de tijd verandert.' };
+    if ((RE.greet.test(t) && words <= 4) || RE.help.test(t)) return { intent: 'help', text: HELP };
 
     if (RE.navigate.test(t)) {
       const o = findMentionedOption(text) ?? (state.selectedId && findOption(state.selectedId)) ?? (last && priced(last)[0] && findOption(priced(last)[0].id));
-      if (!o) return { text: 'Zoek eerst een parkeerplek, dan geef ik je een navigatieknop. Bijvoorbeeld: **2 uur bij de Markt**.' };
-      return { text: `Hier is de route naar **${o.name}**. Je kunt ook in de lijst op een optie tikken en op Navigeer drukken.`, actions: [{ label: `Navigeer naar ${o.name}`, href: navUrl(o) }], pick: o.id };
+      if (!o) return { intent: 'navigate', text: 'Zoek eerst een parkeerplek, dan geef ik je een navigatieknop. Bijvoorbeeld: **2 uur bij de Markt**.' };
+      return { intent: 'navigate', text: `Hier is de route naar **${o.name}**. Je kunt ook in de lijst op een optie tikken en op Navigeer drukken.`, actions: [{ label: `Navigeer naar ${o.name}`, href: navUrl(o) }], pick: o.id };
+    }
+
+    // "die op de Tolbrugstraat" na een zoekopdracht naar een keten: dezelfde winkel, andere vestiging
+    const branch = /^(?:en )?(?:die|de|het|degene|diegene|eentje)\s+(?:op|aan|in|bij)\s+(?:de |het )?(.+)$/.exec(t);
+    if (branch && state.dest?.place) {
+      const { result } = await api.geocode(`${state.dest.place.name} ${branch[1]}`);
+      if (result && String(result.id).startsWith('place-') && norm(result.label).includes(norm(branch[1]).split(' ')[0])) {
+        const res = await applySearch({ dest: toDest(result) });
+        if (res.ok) return { intent: 'search', ...searchAnswer(searchSummary()) };
+      }
     }
 
     // Vraag over één optie uit de lijst ("wat kost Wolvenhoek?", "meer over de tweede")
     const mentioned = findMentionedOption(text);
     const askHours = RE.hours.test(t);
     if (mentioned && (RE.detail.test(t) || ORDINALS.some(([re]) => re.test(t)) || (!askHours && !RE.parkingWords.test(t) && words <= 4) || (askHours && /\bgarage\b/.test(t)))) {
-      return detailAnswer(mentioned);
+      return { intent: 'detail', ...detailAnswer(mentioned) };
     }
     if (RE.why.test(t) && last) {
       const b = priced(last)[0];
-      return { text: `Ik sorteer op de totaalprijs voor jouw parkeertijd, berekend met de echte tarieven en betaaltijden. ${b ? `**${b.name}** komt dan het laagst uit (${price(b)}).` : ''} Wil je liever minder lopen, zeg dan **dichterbij**.` };
+      return { intent: 'why', text: `Ik sorteer op de totaalprijs voor jouw parkeertijd, berekend met de echte tarieven en betaaltijden. ${b ? `**${b.name}** komt dan het laagst uit (${price(b)}).` : ''} Wil je liever minder lopen, zeg dan **dichterbij**.` };
     }
 
     const parsed = await api.aiParse(text);
+    // "tot middernacht" zonder nieuwe begintijd: rekenen vanaf de aankomst die al gekozen was
+    if (parsed.until && parsed.until_from_now && state.arrivalMode === 'later' && state.arrival) {
+      const [uh, um] = parsed.until.split(':').map(Number);
+      const start = new Date(state.arrival);
+      const d = uh * 60 + um - (start.getHours() * 60 + start.getMinutes());
+      if (d > 0) parsed.duration_minutes = d;
+    }
     // "Is de HEMA zaterdag open?" / "hoe laat sluit de Jumbo" (geen parkeerduur gevraagd)
-    if (RE.hours.test(t) && !parsed.duration_minutes && !/\b(parkeer|parkeren|parkeerplek)\b/.test(t)) return hoursAnswer(text, parsed);
+    if (RE.hours.test(t) && !parsed.duration_minutes && !/\b(parkeer|parkeren|parkeerplek)\b/.test(t)) return { intent: 'hours', ...(await hoursAnswer(text, parsed)) };
 
     // Vervolgvragen die alleen filters veranderen
     const refine = {};
     if (RE.closer.test(t)) Object.assign(refine, { sort: 'walk', maxWalk: Math.min(10, state.filters.maxWalk ?? 10) });
-    if (RE.cheaper.test(t) && !parsed.destination) Object.assign(refine, { sort: 'price' });
+    if (RE.cheaper.test(t) && (!parsed.destination || parsed.destination_guess)) Object.assign(refine, { sort: 'price' });
     if (RE.reset.test(t)) Object.assign(refine, { types: null, maxWalk: null, maxPrice: null, sort: 'price' });
 
-    // Bestemming bepalen
+    // Andere onderwerpen, andere steden
+    if (parsed.topic === 'permit') {
+      return { intent: 'help', text: 'Parkeervergunningen en abonnementen regel je bij de gemeente \'s-Hertogenbosch. Ik vergelijk de kosten voor bezoekers: noem waar je heen gaat en hoe lang je blijft, bijvoorbeeld **3 uur bij de Markt**.' };
+    }
+    if (parsed.outside_city) {
+      return { intent: 'outside', text: `ParkSmart werkt voorlopig alleen in Den Bosch, dus niet in ${parsed.outside_city}. Ga je naar een plek in Den Bosch? Noem die dan, bijvoorbeeld **2 uur bij het station**.` };
+    }
+    const hasTripInfo = Boolean(parsed.duration_minutes || parsed.date || parsed.time || parsed.types || parsed.max_price_eur || parsed.max_walk_minutes || Object.keys(refine).length);
+    // Bij een ander onderwerp telt alleen een echte parkeervraag (duur, soort, prijs) mee, niet een losse dag ("weer morgen").
+    const parkingAsked = Boolean(parsed.duration_minutes || parsed.types || parsed.max_price_eur || parsed.max_walk_minutes);
+    if (parsed.topic === 'off_topic' && !parkingAsked && (!parsed.place || parsed.destination_guess)) {
+      return { intent: 'unclear', text: `Daar kan ik je helaas niet mee helpen: ik ben er voor parkeren in Den Bosch.\n\n${HELP}` };
+    }
+
+    // Bestemming bepalen. Een bestemming die alleen uit losse woorden is geraden, telt pas als hij echt iets oplevert.
     let dest;
-    if (parsed.place && parsed.placeInCity === false) return { text: 'Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.' };
+    if (parsed.place && parsed.placeInCity === false) return { intent: 'outside', text: 'Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.' };
     if (parsed.place && !plausible(parsed.destination, parsed.place)) {
-      if (!state.dest || !(parsed.duration_minutes || parsed.date || parsed.time || Object.keys(refine).length || parsed.types)) {
-        return { text: `Ik weet niet zeker welke plek je bedoelt met "${parsed.destination}". Noem een winkel, straat of bekende plek in Den Bosch.\n\n${HELP}` };
-      }
       parsed.place = null;
+      if (!state.dest || !hasTripInfo) {
+        return parsed.destination_guess && !hasTripInfo
+          ? { intent: 'unclear', text: `Sorry, dat begrijp ik niet helemaal.\n\n${HELP}` }
+          : { intent: 'unclear', text: `Ik weet niet zeker welke plek je bedoelt met "${parsed.destination}". Noem een winkel, straat of bekende plek in Den Bosch.` };
+      }
       parsed.destination = null;
     }
+    if (!parsed.place && parsed.destination_guess) {
+      if (state.dest && hasTripInfo) parsed.destination = null; // alleen een vervolgvraag (tijd, duur, filter)
+      else if (!state.dest && hasTripInfo) parsed.destination = null; // tijd/duur zonder plek: vraag waarheen
+      else return { intent: 'unclear', text: `Sorry, dat begrijp ik niet helemaal.\n\n${HELP}` };
+    }
     if (parsed.place) dest = toDest(parsed.place);
-    else if (parsed.destination && !Object.keys(refine).length) return { text: `Ik kan "${parsed.destination}" niet vinden in Den Bosch. Probeer een winkelnaam, straat of bekende plek.` };
-    else if (!state.dest) return { text: 'Waar wil je heen? Noem een winkel, straat of plek in Den Bosch, bijvoorbeeld: **2 uur bij de HEMA**.' };
+    else if (parsed.destination && !Object.keys(refine).length) return { intent: 'notfound', text: `Ik kan "${parsed.destination}" niet vinden in Den Bosch. Probeer een winkelnaam, straat of bekende plek.` };
+    else if (!state.dest) return { intent: 'ask_destination', text: 'Waar wil je heen? Noem een winkel, straat of plek in Den Bosch, bijvoorbeeld: **2 uur bij de HEMA**.' };
 
     let arrival;
     if (parsed.date || parsed.time) {
       const now = localIso(nowRounded());
-      const date = parsed.date || now.slice(0, 10);
+      let date = parsed.date || now.slice(0, 10);
+      // "om 9 uur" terwijl het al middag is: dan bedoel je morgen
+      if (!parsed.date && parsed.time && parsed.time < now.slice(11, 16)) {
+        const d = new Date(`${date}T12:00`);
+        d.setDate(d.getDate() + 1);
+        date = localIso(d).slice(0, 10);
+      }
       arrival = `${date}T${parsed.time || (date !== now.slice(0, 10) ? '10:00' : now.slice(11, 16))}`;
     }
     const isNewTrip = Boolean(dest);
@@ -259,11 +347,11 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       types: parsed.types ?? refine.types,
       sort: parsed.sort ?? refine.sort,
     });
-    if (!res.ok) return { text: res.message };
-    return searchAnswer(searchSummary(), {
+    if (!res.ok) return { intent: 'error', text: res.message };
+    return { intent: isNewTrip ? 'search' : 'refine', ...searchAnswer(searchSummary(), {
       assumedDuration: isNewTrip && !parsed.duration_minutes && state.durationMin === 120,
       preferWalk: RE.closer.test(t) || parsed.sort === 'walk',
-    });
+    }) };
   }
 
   return { turn };

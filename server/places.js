@@ -147,14 +147,41 @@ export function searchPlaces(query, { near = CITY.center, limit = 6 } = {}) {
     if (it.n === q || (it.b && it.b === q)) score = 100;
     else if (it.n.startsWith(q)) score = 85;
     else if (nameHit && toks.every((t) => wordStart(all, t))) score = 70; // naam/merk + straat of categorie
+    else if (it.c === q || `${it.c}s` === q || `${it.c}en` === q) score = 60; // precies een soort zaak: "bioscoop", "supermarkten"
     else if (it.n.includes(q) && q.length >= 4) score = 55;
-    else if (toks.every((t) => wordStart(it.c, t))) score = 45; // alleen categorie, bijv. "apotheek"
+    else if (toks.every((t) => wordStart(it.c, t))) score = 45; // categorie in een langere vraag
     else if (nameHit && q.length >= 4) score = 30;
     if (!score) continue;
     hits.push({ score, d: haversine(near, it.p), p: it.p });
   }
+  // Geen goede treffer? Probeer kleine typfouten ("hemma" -> HEMA, "kruitvat" -> Kruidvat).
+  if (!hits.some((h) => h.score >= 55) && q.length >= 4) {
+    const maxDist = q.length >= 8 ? 2 : 1;
+    for (const it of index) {
+      if (editDistance(q, it.n, maxDist) <= maxDist || (it.b && editDistance(q, it.b, maxDist) <= maxDist)) {
+        hits.push({ score: 56, d: haversine(near, it.p), p: it.p });
+      }
+    }
+  }
   hits.sort((a, b) => b.score - a.score || a.d - b.d);
   return hits.slice(0, limit).map((h) => ({ ...h.p, score: h.score }));
+}
+
+// Levenshtein-afstand met vroege stop (we willen alleen weten of hij <= max is).
+function editDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      rowMin = Math.min(rowMin, cur[j]);
+    }
+    if (rowMin > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
 }
 
 export const placeAddress = (p) => [p.street, p.nr].filter(Boolean).join(' ') || null;

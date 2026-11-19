@@ -178,7 +178,7 @@ worker/           Cloudflare Worker die de Claude-aanroep doet voor de online si
 public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart; bot.js = chatvenster, smart-assistant.js + hours.js = ingebouwde assistent; local-api.js voor de statische versie)
 web/cache.js      Browserversie van de cache voor GitHub Pages
 data/snapshot/    Momentopname van de bronnen voor offline gebruik
-scripts/          make-snapshot.js, fetch-live.js (bezetting), build-pages.js (statische site)
+scripts/          make-snapshot.js, fetch-live.js (bezetting), build-pages.js (statische site), eval-bot.js + bot-scenarios.js (assistent testen)
 .github/          Workflow voor GitHub Pages
 ```
 
@@ -188,4 +188,18 @@ scripts/          make-snapshot.js, fetch-live.js (bezetting), build-pages.js (s
 npm test
 ```
 
-De tests controleren de tariefregels (dag-, avond- en dagmaximum, zondag gratis, eerste 2 uur gratis, feestdagen, maximale parkeerduur) en de regelparser.
+De tests controleren de tariefregels (dag-, avond- en dagmaximum, zondag gratis, eerste 2 uur gratis, feestdagen, maximale parkeerduur), de taalparser, openingstijden en de validatie van de assistent.
+
+### De assistent testen en verbeteren
+
+```bash
+npm run eval:bot -- --all
+```
+
+Dit draait de assistent met precies dezelfde code als de app over een testset van echte vragen (`scripts/bot-scenarios.js`): zoekvragen in allerlei formuleringen, typfouten, afkortingen, Engels, vervolgvragen in hele gesprekken, openingstijden en vragen die er niets mee te maken hebben. Per beurt controleert hij of de vraag goed begrepen is: bestemming, duur, dag en tijd, filters en het soort antwoord.
+
+- `SCENARIOS` is de trainingsset: daarop zijn de regels afgesteld.
+- `HOLDOUT` is de controleset met vragen die niet gebruikt zijn bij het afstellen. Die laat zien hoe goed de assistent nieuwe vragen aankan.
+- Vind je een vraag die misgaat, zet hem dan als scenario in `SCENARIOS`, verbeter de regels (`server/rules.js`, `public/js/smart-assistant.js`) en draai de evaluatie opnieuw.
+
+Resultaat 19-11-2026: eerste meting 78% (training) en 77% (controle), na het afstellen 114/114 beurten goed.

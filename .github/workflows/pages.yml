@@ -38,8 +38,8 @@ jobs:
       - name: Bezetting P+R ophalen
         run: node scripts/fetch-live.js || echo "Bezetting nu niet beschikbaar"
 
-      - name: Tariefregels testen
-        run: node --test server/pricing.test.js
+      - name: Tariefregels, parser en openingstijden testen
+        run: node --test server/pricing.test.js shared/rules.test.js shared/hours.test.js shared/bot.test.js
 
       - run: npm run build:pages
       - uses: actions/configure-pages@v5

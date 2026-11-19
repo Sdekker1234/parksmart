@@ -111,7 +111,7 @@ export const localApi = {
   async aiParse(text) {
     await ensure();
     const parsed = { ...parseRules(String(text).slice(0, 500), nowNL()), source: 'rules' };
-    const place = parsed.destination ? await searchOne(parsed.destination) : null;
+    const place = parsed.destination && !(parsed.topic === 'off_topic' && parsed.destination_guess) ? await searchOne(parsed.destination) : null; // onzin niet opzoeken
     return { ...parsed, place, placeInCity: place ? inBBox(place, CITY.bbox) : null };
   },
 

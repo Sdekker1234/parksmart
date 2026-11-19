@@ -104,8 +104,12 @@ export async function searchOne(q) {
   if (lm.length) return lm[0];
   if (best) return asPlace(best);
   try {
-    const pd = await pdokSuggest(q, 1);
-    if (pd.length) return pd[0];
+    const pd = await pdokSuggest(q, 5);
+    if (pd.length) {
+      // Kies de treffer die echt met de zoekwoorden begint ("Paleiskwartier", niet "Paleisbrug")
+      const nq = norm(q);
+      return pd.find((r) => norm(r.label).startsWith(nq)) ?? pd.find((r) => norm(r.label).includes(nq)) ?? pd[0];
+    }
     // "Jumbo Hinthamerstraat" zonder Jumbo daar: probeer het laatste deel (meestal de straat).
     const words = q.trim().split(/\s+/);
     for (let i = 1; i < words.length; i++) {

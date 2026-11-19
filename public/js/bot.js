@@ -41,7 +41,12 @@ function md(text) {
   return out.join('');
 }
 
-export function createBot({ tools, getContext, rulesTurn, onPick, aiAvailable }) {
+const actionsHtml = (actions) =>
+  actions?.length
+    ? `<div class="msg-actions">${actions.map((a) => `<a class="btn btn-nav btn-sm" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.label)}</a>`).join('')}</div>`
+    : '';
+
+export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAvailable }) {
   const $ = (s) => document.querySelector(s);
   const panel = $('#bot');
   const log = $('#botLog');
@@ -68,8 +73,8 @@ export function createBot({ tools, getContext, rulesTurn, onPick, aiAvailable })
   }
   const setMode = (m) => {
     mode = m;
-    modeEl.textContent = m === 'ai' ? 'Claude' : m === 'rules' ? 'Regels' : '…';
-    modeEl.title = m === 'ai' ? 'Antwoorden door Claude; prijzen berekent ParkSmart zelf.' : 'AI is niet ingesteld: de assistent gebruikt ingebouwde regels.';
+    modeEl.textContent = m === 'ai' ? 'Claude' : m === 'rules' ? 'Ingebouwd · zonder account' : '…';
+    modeEl.title = m === 'ai' ? 'Antwoorden door Claude; prijzen berekent ParkSmart zelf.' : 'Werkt direct in je browser, zonder account of externe AI. Prijzen uit officiële open data.';
     modeEl.classList.toggle('is-ai', m === 'ai');
   };
   setMode('checking');
@@ -111,7 +116,10 @@ export function createBot({ tools, getContext, rulesTurn, onPick, aiAvailable })
   function greet() {
     if (greeted) return;
     greeted = true;
-    const extra = mode === 'rules' ? '<p class="muted-note">De AI staat nu uit, dus ik werk met ingebouwde regels. Houd je vraag kort: plek, dag/tijd en hoe lang.</p>' : '';
+    const extra =
+      mode === 'rules'
+        ? '<p class="muted-note">Ik werk direct in je browser, zonder account. Je kunt ook doorvragen, zoals "dichterbij?", "wat kost de tweede?" of "is de HEMA zaterdag open?".</p>'
+        : '';
     bubble('bot', `<p>Hoi! Ik ben de ParkSmart-assistent. Vertel waar je heen gaat in Den Bosch en hoe lang je blijft, dan zoek ik de goedkoopste en handigste parkeerplek.</p>${extra}`);
     const chips = document.createElement('div');
     chips.className = 'bot-examples';
@@ -176,6 +184,13 @@ export function createBot({ tools, getContext, rulesTurn, onPick, aiAvailable })
     bubble('bot', '<p>Ik kwam er niet helemaal uit. Kun je je vraag iets anders stellen?</p>');
   }
 
+  // Antwoord van de ingebouwde assistent tonen (tekst, resultaatkaartje, navigatieknop, optie markeren).
+  function showRules(r) {
+    if (r.results) resultCard(r.results);
+    bubble('bot', md(r.text) + actionsHtml(r.actions));
+    if (r.pick) onFocus?.(r.pick);
+  }
+
   async function ask(question) {
     const text = String(question || '').trim();
     if (!text || busy) return;
@@ -203,14 +218,10 @@ export function createBot({ tools, getContext, rulesTurn, onPick, aiAvailable })
           } else {
             bubble('bot', '<p>De AI is even niet bereikbaar, dus ik antwoord met de ingebouwde regels.</p>', 'msg-note');
           }
-          const r = await rulesTurn(text);
-          if (r.results) resultCard(r.results);
-          bubble('bot', md(r.text));
+          showRules(await rulesTurn(text));
         }
       } else {
-        const r = await rulesTurn(text);
-        if (r.results) resultCard(r.results);
-        bubble('bot', md(r.text));
+        showRules(await rulesTurn(text));
       }
     } catch (err) {
       bubble('bot', `<p>Er ging iets mis: ${esc(err.message)}. Probeer het opnieuw.</p>`, 'msg-note');

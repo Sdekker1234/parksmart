@@ -99,7 +99,7 @@ export function parseRules(input, now) {
   // Type
   const types = new Set();
   if (/\bgratis\b|\bniks betalen\b|kost niks/.test(t)) types.add('free');
-  if (/\bgarage\b|parkeergarage/.test(t)) types.add('garage');
+  if (/\bgarages?\b|parkeergarage/.test(t)) types.add('garage');
   if (/\bstraat\b|op straat|\bzone\b/.test(t)) types.add('street');
   if (/p\s?\+\s?r|transferium|park and ride|park & ride/.test(t)) types.add('pr');
   if (types.size) out.types = [...types];
@@ -113,7 +113,7 @@ export function parseRules(input, now) {
   if (dm) out.destination = cleanDest(dm[1]);
   if (!out.destination) {
     const rest = cleanDest(
-      t.replace(/\b(ik|wil|moet|ga|gaan|graag|waar|wat|welke|hoe|is|kan|mijn|parkeren|parkeer|parkeerplaats|parkeerplek|plek|auto|kwijt|zetten|neerzetten|zoek|zoeken|een|de|het|in|den bosch|'s-hertogenbosch|best|beste|goedkoop|goedkoopst|goedkoopste|gratis|garage|straat|lopen|max|maximaal|en|voor|om|uur|ongeveer)\b/g, ' '),
+      t.replace(/\b(ik|wil|moet|ga|gaan|graag|waar|wat|welke|hoe|is|kan|mijn|parkeren|parkeer|parkeerplaats|parkeerplek|plek|auto|kwijt|zetten|neerzetten|zoek|zoeken|een|de|het|in|den bosch|'s-hertogenbosch|best|beste|goedkoop|goedkoopst|goedkoopste|gratis|garage|garages|straat|lopen|max|maximaal|en|voor|om|uur|ongeveer|open|gesloten|dicht|sluit|sluiten|openingstijden|hoe|laat|zijn|nog|alleen)\b/g, ' '),
     );
     if (rest.length >= 3) out.destination = rest;
   }

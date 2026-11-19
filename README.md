@@ -65,9 +65,23 @@ Boven de AI-limiet valt de app terug op de ingebouwde regels, dus hij blijft wer
 - **Straatparkeren** gaat vanzelf: RDW publiceert de tarieven van het volgende jaar al vooruit (2027 staat er al in).
 - **Garages en transferia** komen uit het gemeentebesluit. Dat verschijnt meestal half december op [lokaleregelgeving.overheid.nl](https://lokaleregelgeving.overheid.nl). Voeg dan in `server/config.js` bij `DECREE_TARIFFS` een blok toe voor het nieuwe jaar. Tot die tijd toont de app garageprijzen in het nieuwe jaar met **≈** en het label **Schatting**.
 
-## ParkSmart-assistent (AI-bot)
+## ParkSmart-assistent (chatbot)
 
-Rechtsonder zit de **Assistent**: een chatbot op basis van Claude (`claude-opus-5-5`). Je vraagt bijvoorbeeld *"waar parkeer ik het goedkoopst bij de HEMA, zaterdag om 14:00?"* en daarna *"en voor 4 uur?"*. Claude beslist zelf welke tools hij nodig heeft:
+Rechtsonder zit de **Assistent**. Online werkt hij standaard **zonder account, sleutel of externe AI-dienst**: de ingebouwde assistent (`public/js/smart-assistant.js`) draait in de browser en antwoordt met de echte, berekende prijzen. Hij begrijpt onder meer:
+
+| Vraag | Voorbeeld |
+|---|---|
+| Parkeerplek zoeken | "waar parkeer ik het goedkoopst bij de HEMA?", "zaterdag 14:00 drie uur naar de Sint-Jan, max 10 min lopen" |
+| Vervolgvragen | "en voor 4 uur?", "en morgen om 10:00?", "dichterbij?", "alleen garages", "alle opties" |
+| Eén optie | "wat kost Wolvenhoek?", "vertel meer over de tweede" |
+| Openingstijden | "is de HEMA zaterdag open?", "hoe laat sluit de Jumbo?" (uit OpenStreetMap; ook als waarschuwing bij een zoekopdracht) |
+| Navigeren | "navigeer" (knop naar Google Maps) |
+
+Antwoorden noemen de goedkoopste optie, een alternatief met minder lopen, de bezetting (als bekend), actieve filters en de betrouwbaarheid van de bron.
+
+### Optioneel: Claude
+
+Wil je later een taalmodel, dan staat de koppeling met Claude (`claude-opus-5-5`) klaar. Claude beslist dan zelf welke tools hij nodig heeft:
 
 | Tool | Wat |
 |---|---|
@@ -77,9 +91,9 @@ Rechtsonder zit de **Assistent**: een chatbot op basis van Claude (`claude-opus-
 
 De tools draaien in de browser met de rekenmotor van de app. Claude krijgt alleen de berekende feiten en heeft de opdracht geen prijzen, openingstijden of vrije plekken te verzinnen. Model, systeemprompt en tools liggen vast in `shared/bot.js`; de browser kan alleen berichten meesturen. Ik heb server-side fallbacks aangezet (`fallbacks: "default"`): weigert het model een verzoek, dan probeert de API automatisch een passend ander model. In de tool-lus gebruik ik prompt-caching, zodat het herhaalde deel van het gesprek veel goedkoper is.
 
-Zonder AI werkt de assistent ook, met ingebouwde regels (minder slim: houd de vraag kort).
+Is Claude niet ingesteld of niet bereikbaar, dan neemt de ingebouwde assistent het over.
 
-### De assistent online aanzetten (Cloudflare Worker)
+### Claude online aanzetten (Cloudflare Worker, vereist accounts)
 
 GitHub Pages kan geen geheime API-sleutel bewaren. Daarom doet een kleine, gratis [Cloudflare Worker](https://workers.cloudflare.com) (`worker/`) de Claude-aanroep. Die is altijd direct beschikbaar, laat alleen jouw site toe en heeft limieten per bezoeker en per dag.
 
@@ -161,7 +175,7 @@ server/
   rules.js        Terugval zonder AI
 shared/bot.js     Assistent: systeemprompt, tools en validatie (server en Worker)
 worker/           Cloudflare Worker die de Claude-aanroep doet voor de online site
-public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart; bot.js = de assistent; local-api.js voor de statische versie)
+public/           Frontend (HTML, CSS, JavaScript, Leaflet-kaart; bot.js = chatvenster, smart-assistant.js + hours.js = ingebouwde assistent; local-api.js voor de statische versie)
 web/cache.js      Browserversie van de cache voor GitHub Pages
 data/snapshot/    Momentopname van de bronnen voor offline gebruik
 scripts/          make-snapshot.js, fetch-live.js (bezetting), build-pages.js (statische site)

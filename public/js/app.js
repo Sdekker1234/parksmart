@@ -2,6 +2,7 @@
 import { api } from './api.js';
 import { createMap } from './map.js';
 import { createBot } from './bot.js';
+import { createSmartAssistant } from './smart-assistant.js';
 import { eur, eurShort, duration, distance, localIso, nowRounded, arrivalLabel, timeAgo, esc } from './format.js';
 
 const $ = (s) => document.querySelector(s);
@@ -78,6 +79,7 @@ async function init() {
       duration: duration(state.durationMin),
       arrival: state.arrivalMode === 'now' ? 'nu' : state.arrival,
     }),
+    onFocus: (id) => select(id, { open: true, scroll: false }),
     onPick: (id) => {
       if (window.matchMedia('(max-width: 899px)').matches) bot.close(); // op mobiel: lijst en kaart weer zichtbaar
       select(id, { open: true, scroll: true });
@@ -540,64 +542,13 @@ const botTools = {
   },
 };
 
-// Zonder AI: de vraag ontleden met de ingebouwde regels, zoeken en een kort antwoord samenstellen.
-const SMALLTALK = /^\s*(hoi|hallo|hey|hee|hi|goedemorgen|goedemiddag|goedenavond|help|wat kun je|wat doe je|hoe werkt|wie ben je|bedankt|dank je|dankjewel|thanks|top|ok|oké)\b/i;
-const HELP_TEXT =
-  'Ik zoek de goedkoopste en handigste parkeerplek in Den Bosch. Noem waar je heen gaat en hoe lang je blijft, bijvoorbeeld:\n- **2 uur bij de HEMA**\n- **zaterdag 14:00 drie uur naar de Sint-Jan, max 10 minuten lopen**\n- **gratis parkeren bij het station**\nDaarna kun je doorvragen, zoals "en voor 4 uur?".';
-const normTxt = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ');
-const WEAK = new Set(['de', 'het', 'een', 'van', 'bij', 'naar', 'wat', 'kun', 'kan', 'hoe', 'wie', 'wil', 'ik', 'je', 'jij', 'hoi', 'hallo']);
-// Lijkt het gevonden adres echt op wat de bestuurder typte? (voorkomt willekeurige treffers)
-function plausiblePlace(query, place) {
-  if (String(place.id || '').startsWith('lm-')) return true;
-  const label = normTxt(place.label);
-  return normTxt(query).split(/\s+/).some((t) => t.length >= 3 && !WEAK.has(t) && label.includes(t));
-}
-
-async function rulesTurn(text) {
-  if (SMALLTALK.test(text) && !/\d|uur|parkeer|parkeren|gratis|goedkoop/i.test(text)) {
-    return { text: /bedankt|dank|thanks|top|ok/i.test(text) ? 'Graag gedaan! Vraag gerust verder als je ergens anders heen wilt.' : HELP_TEXT };
-  }
-  const r = await api.aiParse(text);
-  let dest;
-  if (r.place && r.placeInCity === false) return { text: 'Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.' };
-  if (r.place && !plausiblePlace(r.destination, r.place)) {
-    if (!state.dest || !(r.duration_minutes || r.date || r.time)) return { text: `Ik weet niet zeker welke plek je bedoelt met "${r.destination}". Noem een winkel, straat of bekende plek in Den Bosch.\n\n${HELP_TEXT}` };
-    r.place = null; // alleen een nieuwe tijd/duur: huidige bestemming houden
-    r.destination = null;
-  }
-  if (r.place) dest = toDest(r.place);
-  else if (r.destination) return { text: `Ik kan "${r.destination}" niet vinden in Den Bosch. Probeer een winkelnaam, straat of bekende plek.` };
-  else if (!state.dest) return { text: 'Waar wil je heen? Noem een winkel, straat of plek in Den Bosch, bijvoorbeeld: **2 uur bij de HEMA**.' };
-  let arrival;
-  if (r.date || r.time) {
-    const now = localIso(nowRounded());
-    const date = r.date || now.slice(0, 10);
-    arrival = `${date}T${r.time || (date !== now.slice(0, 10) ? '10:00' : now.slice(11, 16))}`;
-  }
-  const res = await applySearch({
-    dest,
-    durationMin: r.duration_minutes || undefined,
-    arrival,
-    maxPrice: r.max_price_eur ?? undefined,
-    maxWalk: r.max_walk_minutes ?? undefined,
-    types: r.types ?? undefined,
-    sort: r.sort ?? undefined,
-  });
-  if (!res.ok) return { text: res.message };
-  const sum = searchSummary();
-  const priced = sum.options.filter((o) => o.total_eur != null);
-  if (!priced.length) return { text: 'Met deze filters vind ik geen plek met een bekende prijs. Probeer een langere looptijd of hogere maximumprijs.', results: sum };
-  const a = await api.advice({
-    destination: state.dest.label,
-    destination_place: state.dest.place ? { name: state.dest.place.name, kind: state.dest.place.kind, address: state.dest.place.address, hours: state.dest.place.hours } : null,
-    arrival: sum.arrival,
-    duration_label: sum.duration_label,
-    options: priced.map((o) => ({ id: o.id, name: o.name, kind: o.kind, total: o.total_eur, per_hour: o.per_hour_eur, walk_min: o.walk_minutes ?? 0, walk_m: o.walk_meters ?? 0, shuttle: o.shuttle, source_trust: o.source_trust, notes: o.notes, warnings: o.warnings })),
-  });
-  const assumed = r.duration_minutes ? '' : `\n\nIk ga uit van ${sum.duration_label}; noem een andere duur als je langer of korter blijft.`;
-  const hours = state.dest.place?.hoursNl ? `\n\nOpeningstijden ${state.dest.place.name} (OpenStreetMap): ${state.dest.place.hoursNl}.` : '';
-  return { text: `${a.advice}${a.tip ? `\n\nTip: ${a.tip}` : ''}${hours}${assumed}`, results: sum };
-}
+// Zonder AI: de ingebouwde assistent (smart-assistant.js) gebruikt dezelfde zoekfuncties als Claude.
+const navUrl = (o) => `https://www.google.com/maps/dir/?api=1&destination=${o.lat.toFixed(6)},${o.lon.toFixed(6)}&travelmode=driving`;
+let smart;
+const rulesTurn = (text) => {
+  smart ??= createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl });
+  return smart.turn(text);
+};
 
 // ---------- Zoeken ----------
 let searchTimer;

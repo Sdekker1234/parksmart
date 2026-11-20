@@ -8,7 +8,10 @@ const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.ge
 
 const NUMBER_WORDS = { een: 1, 'één': 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10, elf: 11, twaalf: 12, vijftien: 15, twintig: 20, dertig: 30, veertig: 40, one: 1, two: 2, three: 3, four: 4, five: 5 };
 const NW = Object.keys(NUMBER_WORDS).join('|');
-const NUM_RE = new RegExp(`\\b(${NW})\\b(?=\\s+(?:uur|uren|uurtje|uurtjes|minuten|min|minuutjes|dagen|dag|hours?|euro)\\b)|(?<=\\b(?:half|om|vanaf|tot|rond|over|voor)\\s+)\\b(${NW})\\b(?!\\s+(?:uur|uren|uurtjes?|minuten|dagen))`, 'g');
+// Geen lookbehind in reguliere expressies gebruiken: die kent Safari pas sinds iOS 16.4 en dan start de hele app niet.
+// Daarom vangen we het voorzetsel ("half", "om", ...) in groep 2 en zetten het bij vervangen terug.
+const NUM_RE = new RegExp(`\\b(${NW})\\b(?=\\s+(?:uur|uren|uurtje|uurtjes|minuten|min|minuutjes|dagen|dag|hours?|euro)\\b)|\\b((?:half|om|vanaf|tot|rond|over|voor)\\s+)(${NW})\\b(?!\\s+(?:uur|uren|uurtjes?|minuten|dagen))`, 'g');
+const numWords = (t) => t.replace(NUM_RE, (w, a, pre, b) => (a ? String(NUMBER_WORDS[a]) : pre + NUMBER_WORDS[b]));
 
 // Afkortingen en spreektaal -> wat de zoekfunctie kent
 const SYNONYMS = [
@@ -27,7 +30,7 @@ const OFF_TOPIC = /\b(weer|weerbericht|regen|mop|grap|grapje|nieuws|recept|voetb
 // now = Date met NL-wandklok als UTC
 export function parseRules(input, now) {
   let t = ` ${String(input || '').toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, ' ')} `;
-  t = t.replace(NUM_RE, (w) => String(NUMBER_WORDS[w]));
+  t = numWords(t);
   for (const [re, rep] of SYNONYMS) t = t.replace(re, rep);
   const out = {
     destination: null,
@@ -98,7 +101,13 @@ export function parseRules(input, now) {
           if (h <= 24) out.time = `${pad(m[2] ? h % 24 : dayHour(h % 24))}:${m[2] ?? '00'}`;
         });
   // Losse tijd zonder "om", bijv. "zaterdag 14:00" (een eindtijd met "tot" wordt hieronder als duur gelezen)
-  if (!out.time) take(/(?<!tot )\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/, (m) => (out.time = `${pad(num(m[1]))}:${m[2]}`));
+  if (!out.time) {
+    const m = [...t.matchAll(/(tot )?\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/g)].find((x) => !x[1]);
+    if (m) {
+      out.time = `${pad(num(m[2]))}:${m[3]}`;
+      t = t.replace(m[0], ' ');
+    }
+  }
   if (dayPart) out.time ??= { ochtend: '09:00', middag: '14:00', avond: '19:00' }[dayPart];
   const partOfDay = [
     [/\bvanavond\b|'s avonds|\bavond\b|\btonight\b/, '19:00'],

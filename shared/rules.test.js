@@ -47,3 +47,27 @@ test('vervolgvragen geven geen nep-bestemming', () => {
   assert.equal(p('is er ook iets gratis?').destination, null);
   assert.deepEqual(p('is er ook iets gratis?').types, ['free']);
 });
+
+test('getallen in woorden en losse tijden (zonder lookbehind, werkt ook op oudere iPhones)', () => {
+  assert.equal(p('ik ben er om half drie').time, '14:30');
+  assert.equal(p('drie uur bij de markt').duration_minutes, 180);
+  assert.equal(p('om twee uur naar de markt').time, '14:00');
+  assert.equal(p('zaterdag 14:00 naar de markt').time, '14:00');
+  const r = p('van 13:00 tot 17:00 bij de markt');
+  assert.equal(r.time, '13:00');
+  assert.equal(r.duration_minutes, 240);
+  assert.equal(p('tot 17:00 bij de markt').time, null); // "tot 17:00" is een eindtijd, geen aankomsttijd
+});
+
+test('browsercode gebruikt geen lookbehind (Safari < 16.4 kan de module dan niet laden)', async () => {
+  const { readFile, readdir } = await import('node:fs/promises');
+  const SERVER_ONLY = new Set(['index.js', 'ai.js', 'cache.js']);
+  for (const dir of ['public/js', 'web', 'server']) {
+    const base = new URL(`../${dir}/`, import.meta.url);
+    for (const f of await readdir(base)) {
+      if (!f.endsWith('.js') || f.endsWith('.test.js') || (dir === 'server' && SERVER_ONLY.has(f))) continue;
+      const src = await readFile(new URL(f, base), 'utf8');
+      assert.doesNotMatch(src, /\(\?<[=!]/, `${dir}/${f} bevat een lookbehind`);
+    }
+  }
+});

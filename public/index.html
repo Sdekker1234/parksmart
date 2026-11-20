@@ -183,6 +183,64 @@
     </form>
   </dialog>
 
+  <script>
+    // Vangnet voor oudere telefoons en haperende verbindingen. Gewoon script (geen module), zodat het
+    // ook werkt als de app zelf niet kan starten. app.js zet PARKSMART_READY zodra alles geladen is.
+    (function () {
+      if (window.AbortSignal && !AbortSignal.timeout) {
+        AbortSignal.timeout = function (ms) {
+          var c = new AbortController();
+          setTimeout(function () { c.abort(new DOMException('Time-out', 'TimeoutError')); }, ms);
+          return c.signal;
+        };
+      }
+      var lastError = '';
+      var shown = false;
+      window.PARKSMART_FAIL = function (text, detail) {
+        if (shown) return;
+        shown = true;
+        var box = document.createElement('div');
+        box.setAttribute('role', 'alert');
+        box.style.cssText = 'position:fixed;left:16px;right:16px;bottom:16px;z-index:9999;max-width:460px;margin:0 auto;padding:16px;border-radius:14px;background:#fff;color:#0f2a4a;box-shadow:0 8px 30px rgba(15,42,74,.25);border:1px solid #d6e2f0;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif';
+        var title = document.createElement('strong');
+        title.textContent = text || 'ParkSmart start niet goed op.';
+        var tip = document.createElement('p');
+        tip.style.margin = '6px 0 12px';
+        tip.textContent = 'Herlaad de pagina. Helpt dat niet, werk dan je browser bij of probeer een andere browser (Safari, Chrome of Edge).';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = 'Opnieuw laden';
+        btn.style.cssText = 'border:0;border-radius:10px;padding:10px 16px;background:#1f5fae;color:#fff;font:inherit;font-weight:600;cursor:pointer';
+        btn.onclick = function () { location.reload(); };
+        box.appendChild(title);
+        box.appendChild(tip);
+        box.appendChild(btn);
+        var info = detail || lastError;
+        if (info) {
+          var small = document.createElement('p');
+          small.style.cssText = 'margin:10px 0 0;font-size:12px;color:#5b6f86';
+          small.textContent = 'Technische melding: ' + String(info).slice(0, 160);
+          box.appendChild(small);
+        }
+        document.body.appendChild(box);
+      };
+      function failSoon() {
+        setTimeout(function () { if (!window.PARKSMART_READY) window.PARKSMART_FAIL(); }, 2500);
+      }
+      window.addEventListener('error', function (e) {
+        if (window.PARKSMART_READY || !e.message) return;
+        lastError = e.message;
+        failSoon();
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        if (window.PARKSMART_READY) return;
+        lastError = (e.reason && e.reason.message) || String(e.reason);
+        failSoon();
+      });
+      setTimeout(function () { if (!window.PARKSMART_READY) window.PARKSMART_FAIL(); }, 20000);
+    })();
+  </script>
+  <script nomodule>window.PARKSMART_FAIL('Deze browser is te oud voor ParkSmart.');</script>
   <script src="vendor/leaflet/leaflet.js"></script>
   <script type="module" src="js/app.js"></script>
 </body>

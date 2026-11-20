@@ -1,5 +1,5 @@
 // ParkSmart frontend: zoeken, filteren, kaart en advies.
-import { api } from './api.js';
+import { api, isStatic } from './api.js';
 import { createMap } from './map.js';
 import { createBot } from './bot.js';
 import { createSmartAssistant } from './smart-assistant.js';
@@ -57,8 +57,13 @@ async function init() {
   syncDuration();
   try {
     state.status = await api.status();
-  } catch {
-    showMessage('De ParkSmart-server reageert niet. Draait `npm start` nog?', true);
+  } catch (err) {
+    console.error(err);
+    const text = isStatic
+      ? 'De parkeergegevens konden niet worden geladen. Controleer je internetverbinding.'
+      : 'De ParkSmart-server reageert niet. Draait `npm start` nog?';
+    showMessage(text, true);
+    window.PARKSMART_FAIL?.(text, err?.message);
     return;
   }
   const s = state.status;
@@ -85,6 +90,7 @@ async function init() {
     },
   });
   restoreFromHash();
+  window.PARKSMART_READY = true; // het vangnet in index.html hoeft niets meer te melden
 }
 
 async function loadZones(date) {

@@ -18,17 +18,28 @@ const DATASETS = {
   specificaties: 'b3us-f26s', // SPECIFICATIES PARKEERGEBIED (capaciteit)
 };
 
-async function fetchAll() {
-  const out = {};
-  const entries = Object.entries(DATASETS);
-  await Promise.all(
-    entries.map(async ([name, id]) => {
-      const url = `${BASE}/${id}.json?areamanagerid=${CITY.areaManagerId}&$limit=50000`;
+// Eén dataset ophalen, met maximaal drie pogingen: vanaf GitHub Actions valt de verbinding met
+// opendata.rdw.nl af en toe weg ("fetch failed").
+async function fetchDataset(name, id) {
+  const url = `${BASE}/${id}.json?areamanagerid=${CITY.areaManagerId}&$limit=50000`;
+  let lastErr;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
       const rows = await fetchJson(url, { timeoutMs: 45000 });
       if (!Array.isArray(rows)) throw new Error(`Onverwachte respons voor ${name}`);
-      out[name] = rows;
-    }),
-  );
+      return rows;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 4000));
+    }
+  }
+  throw lastErr;
+}
+
+async function fetchAll() {
+  const out = {};
+  // Na elkaar in plaats van allemaal tegelijk: minder kans dat RDW verbindingen afbreekt
+  for (const [name, id] of Object.entries(DATASETS)) out[name] = await fetchDataset(name, id);
   if (!out.tariefdeel.length || !out.geometrie.length) throw new Error('RDW-data onvolledig');
   return out;
 }

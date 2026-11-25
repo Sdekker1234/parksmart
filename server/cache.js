@@ -70,12 +70,19 @@ export async function loadWithFallback(name, ttlMs, fetchLive, { forceLive = fal
 }
 
 export async function fetchJson(url, { timeoutMs = 30000, headers = {}, method = 'GET', body } = {}) {
-  const res = await fetch(url, {
-    method,
-    body,
-    headers: { 'User-Agent': 'ParkSmart-prototype/0.1', Accept: 'application/json', ...headers },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method,
+      body,
+      headers: { 'User-Agent': 'ParkSmart-prototype/0.1', Accept: 'application/json', ...headers },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    // "fetch failed" zegt weinig; de echte oorzaak (bijv. ECONNRESET of een time-out) zit in err.cause
+    const cause = err.cause?.code || err.cause?.message || err.name;
+    throw new Error(`${err.message}${cause && cause !== err.message ? ` (${cause})` : ''} voor ${new URL(url).host}`);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status} voor ${new URL(url).host}`);
   const text = await res.text();
   if (!text) throw new Error(`Lege respons van ${new URL(url).host}`);

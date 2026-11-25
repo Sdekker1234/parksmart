@@ -14,7 +14,7 @@ import { CITY } from '../server/config.js';
 import { createSmartAssistant } from '../public/js/smart-assistant.js';
 import { ALL_TYPES, DEFAULT_WALK, toDest, applySearchParams, buildSummary } from '../public/js/summary.js';
 import { localIso, nowRounded } from '../public/js/format.js';
-import { SCENARIOS, HOLDOUT, AI_SCENARIOS, AI_HOLDOUT, AI_KNOWN_FAILS } from './bot-scenarios.js';
+import { SCENARIOS, HOLDOUT, AI_SCENARIOS, AI_HOLDOUT, AI_KNOWN_FAILS, HONESTY } from './bot-scenarios.js';
 import { createNodeSemantic } from './semantic-node.js';
 
 const args = process.argv.slice(2);
@@ -22,7 +22,7 @@ const verbose = args.includes('--verbose');
 const only = args.find((a) => !a.startsWith('--'));
 // Standaard draait het AI-model mee (eenmalig ±135 MB downloaden). Zonder: -- --zonder-ai
 const useAi = !args.includes('--zonder-ai');
-const SET = (args.includes('--holdout') ? [...HOLDOUT, ...AI_HOLDOUT] : args.includes('--all') ? [...SCENARIOS, ...HOLDOUT, ...AI_SCENARIOS, ...AI_HOLDOUT, ...AI_KNOWN_FAILS] : [...SCENARIOS, ...AI_SCENARIOS]).filter((sc) => useAi || !sc.ai);
+const SET = (args.includes('--holdout') ? [...HOLDOUT, ...AI_HOLDOUT] : args.includes('--all') ? [...SCENARIOS, ...HOLDOUT, ...AI_SCENARIOS, ...AI_HOLDOUT, ...AI_KNOWN_FAILS, ...HONESTY] : [...SCENARIOS, ...AI_SCENARIOS, ...HONESTY]).filter((sc) => useAi || !sc.ai);
 const semantic = useAi ? createNodeSemantic() : null;
 if (semantic) await semantic.enable();
 

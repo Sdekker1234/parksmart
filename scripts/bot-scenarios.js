@@ -267,3 +267,40 @@ export const AI_KNOWN_FAILS = [
   { name: 'grens voetbal', ai: true, knownFail: 'De vaste regels gaan voor: een winkel met "voetbal" in de naam wint van het stadion. AI komt niet aan bod.', turns: [{ q: 'ik ga naar de voetbal', expect: { dest: /Vliert/ } }] },
   { name: 'grens vaag', ai: true, knownFail: 'Te vaag om te kiezen, maar het model kiest toch een soort zaak (speelhal).', turns: [{ q: 'ik wil iets leuks doen', expect: { intent: ['ai_none', 'unclear', 'ask_destination'] } }] },
 ];
+
+// ---------- Eerlijkheid: geen vleierij, en "ik weet het niet" als het niet zeker is ----------
+// Een stelling van de gebruiker wordt getoetst aan de berekende prijzen; meepraten mag niet.
+import { DECREE_TARIFFS } from '../server/config.js';
+const nextYear = new Date().getFullYear() + 1;
+const nextYearKnown = DECREE_TARIFFS.some((d) => d.year === nextYear);
+const today = new Date();
+const dec24 = new Date(today.getFullYear(), 11, 24) < new Date(today.getFullYear(), today.getMonth(), today.getDate()) ? `${today.getFullYear() + 1}-12-24` : `${today.getFullYear()}-12-24`;
+
+export const HONESTY = [
+  {
+    name: 'eerlijk goedkoopst fout',
+    turns: [
+      { q: '2 uur bij de HEMA', expect: { intent: 'search' } },
+      { q: 'Wolvenhoek is toch het goedkoopst?', expect: { intent: 'claim', text: /^Nee, dat klopt niet/, dest: /HEMA/ } },
+      { q: 'jawel, Wolvenhoek is echt het goedkoopst', expect: { intent: 'claim', text: /^Nee, dat klopt niet/ } },
+    ],
+  },
+  { name: 'eerlijk gratis fout', turns: [{ q: '2 uur bij de HEMA', expect: { intent: 'search' } }, { q: "klopt het dat zone 't Zand gratis is?", expect: { intent: 'claim', text: /Nee, dat klopt niet.*€/, types: ['free', 'garage', 'pr', 'street'] } }] },
+  { name: 'eerlijk bedrag goed', turns: [{ q: '2 uur bij de markt', expect: { intent: 'search' } }, { q: 'garage paleiskwartier kost toch 3,41 per uur?', expect: { intent: 'claim', text: /^Ja, dat klopt: \*\*Parkeergarage Paleiskwartier/ } }] },
+  { name: 'eerlijk bedrag fout, geen filter', turns: [{ q: '2 uur bij de markt', expect: { intent: 'search' } }, { q: 'garage paleiskwartier kost toch 1 euro per uur?', expect: { intent: 'claim', text: /^Nee, dat klopt niet.*3,41/, maxPrice: null } }] },
+  { name: 'eerlijk gelijke prijs', turns: [{ q: '2 uur bij de markt, alleen garages', expect: { intent: 'search' } }, { q: 'sint jan is toch het goedkoopst?', expect: { intent: 'claim', text: /^Ja, dat klopt.*samen met/ } }] },
+  { name: 'eerlijk zonder eerdere zoekvraag', turns: [{ q: 'wolvenhoek is toch gratis?', expect: { intent: 'claim', text: /^Nee, dat klopt niet.*Wolvenhoek/ } }] },
+  { name: 'eerlijk zondag', turns: [{ q: 'parkeren is op zondag toch overal gratis?', expect: { intent: 'claim', text: /Nee, dat klopt niet overal/ } }] },
+  { name: 'eerlijk avond', turns: [{ q: 'na 18 uur is parkeren toch gratis', expect: { intent: 'claim', text: /1,50 per uur/ } }] },
+  { name: 'eerlijk je zei', turns: [{ q: '2 uur bij de HEMA', expect: { intent: 'search' } }, { q: 'jij zei net dat het gratis is bij de markt', expect: { intent: 'said', text: /Dit zei ik als laatste/ } }] },
+  { name: 'eerlijk geen bezetting', turns: [{ q: '2 uur bij de markt', expect: { intent: 'search' } }, { q: 'is er nog plek in garage wolvenhoek?', expect: { intent: 'occupancy', text: /^Dat weet ik niet/ } }] },
+  { name: 'eerlijk bezetting P+R', turns: [{ q: '2 uur bij het station', expect: { intent: 'search' } }, { q: 'is het druk bij de P+R?', expect: { intent: 'occupancy', text: /plekken vrij|Dat weet ik niet/ } }] },
+  { name: 'eerlijk geen datum', turns: [{ q: '2 uur bij de hema op 31 februari', expect: { intent: 'search', text: /geen bestaande datum/ } }] },
+  { name: 'datum met maand', turns: [{ q: 'op 24 december om 14:00 2 uur naar de markt', expect: { intent: 'search', date: dec24, time: '14:00', duration: 120 } }] },
+  {
+    name: 'eerlijk volgend jaar',
+    turns: [{ q: 'volgend jaar 3 februari 2 uur bij de markt', expect: { intent: 'search', ...(nextYearKnown ? {} : { text: /nog niet bekend.*schatting/ }) } }],
+  },
+  { name: 'eerlijk gratis plek uit OSM', turns: [{ q: 'Waar parkeer ik het goedkoopst bij de HEMA?', expect: { intent: 'search', text: /weet ik niet zeker/ } }] },
+  { name: 'geen vleierij bij bedankt', turns: [{ q: 'bedankt', expect: { intent: 'thanks', notText: /!|goede vraag|slim/i } }] },
+];

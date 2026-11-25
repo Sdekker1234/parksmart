@@ -2,6 +2,8 @@
 // Zelfde uitvoerformaat als de AI-functies, zodat de frontend geen verschil hoeft te maken.
 
 const WEEKDAYS = ['zondag', 'maandag', 'dinsdag', 'woensdag', 'donderdag', 'vrijdag', 'zaterdag'];
+const MONTHS = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+const MONTH_SHORT = { jan: 0, feb: 1, mrt: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, okt: 9, nov: 10, dec: 11 };
 const EN_DAYS = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
@@ -76,7 +78,19 @@ export function parseRules(input, now) {
   const addDays = (n) => ymd(new Date(base.getTime() + n * 86400e3));
   let dayPart = null;
   const dayRe = `(${WEEKDAYS.join('|')})`;
-  if (!take(/\bovermorgen\b/, () => (out.date = addDays(2))))
+  // "3 februari", "op 24 dec", "3 februari 2027", "volgend jaar 3 februari". Zonder jaar: de eerstvolgende.
+  const nextYear = take(/\bvolgend jaar\b/, () => {});
+  const monthRe = new RegExp(`\\b(?:op\\s+)?(\\d{1,2})(?:e|ste|de)?\\s+(${MONTHS.join('|')}|${Object.keys(MONTH_SHORT).join('|')})\\.?(?:\\s+(20\\d\\d))?\\b`);
+  const monthHit = take(monthRe, (m) => {
+    const mon = MONTHS.includes(m[2]) ? MONTHS.indexOf(m[2]) : MONTH_SHORT[m[2]];
+    const day = num(m[1]);
+    let year = m[3] ? num(m[3]) : base.getUTCFullYear() + (nextYear ? 1 : 0);
+    let d = new Date(Date.UTC(year, mon, day));
+    if (d.getUTCMonth() !== mon) return void (out.invalid_date = m[0].replace(/^op\s+/, '').trim()); // bijv. 31 februari
+    if (!m[3] && !nextYear && d < base) d = new Date(Date.UTC(++year, mon, day));
+    out.date = ymd(d);
+  });
+  if (!monthHit && !take(/\bovermorgen\b/, () => (out.date = addDays(2))))
     if (!take(/\bmorgen(ochtend|middag|avond)?\b|\btomorrow\b/, (m) => { out.date = addDays(1); dayPart = m[1] ?? null; }))
       if (!take(/\bvandaag\b|\btoday\b/, () => (out.date = addDays(0))))
         if (!take(new RegExp(`\\bvolgende week(?: op)?\\s+${dayRe}\\b`), (m) => {

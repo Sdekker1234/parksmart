@@ -12,7 +12,9 @@ import { loadRdw, uuidByArea } from '../server/rdw.js';
 import { loadSpdp } from '../server/spdp.js';
 import { loadOsm } from '../server/osm.js';
 import { loadPlaces } from '../server/places.js';
-import { writeSnapshot, readSnapshot } from '../server/cache.js';
+import { writeSnapshot, readSnapshot, DATA_DIR } from '../server/cache.js';
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const args = process.argv.slice(2);
 const keepOnError = args.includes('--keep-on-error');
@@ -22,12 +24,16 @@ const DAY = 24 * 3600e3;
 const MIN_AGE = { osm: DAY - 3600e3, places: 7 * DAY - 3600e3 };
 
 let failures = 0;
+// Verslag van deze ronde: de app laat zien wanneer de tarieven voor het laatst gecontroleerd zijn,
+// en of de laatste poging lukte (data/snapshot/refresh-status.json, komt mee in de statische site).
+const report = { checkedAt: Date.now(), sources: {} };
 async function refresh(name, loader, count) {
   if (only && only !== name) return;
   if (keepOnError && MIN_AGE[name]) {
     const old = await readSnapshot(name);
     if (old && Date.now() - old.savedAt < MIN_AGE[name]) {
       console.log(`${name.padEnd(6)} overgeslagen (nog vers, ${new Date(old.savedAt).toISOString()})`);
+      report.sources[name] = { ok: true, skipped: true, savedAt: old.savedAt };
       return;
     }
   }
@@ -36,9 +42,12 @@ async function refresh(name, loader, count) {
     if (res.origin !== 'live') throw new Error(res.error || `niet live (${res.origin})`);
     await writeSnapshot(name, res.data);
     console.log(`${name.padEnd(6)} ok (${count(res.data)})`);
+    report.sources[name] = { ok: true, savedAt: Date.now(), count: count(res.data) };
   } catch (err) {
     failures++;
     console.warn(`${name.padEnd(6)} MISLUKT: ${err.message}${keepOnError ? ' (oude data blijft staan)' : ''}`);
+    const old = await readSnapshot(name).catch(() => null);
+    report.sources[name] = { ok: false, error: String(err.message).slice(0, 300), savedAt: old?.savedAt ?? null };
     if (!keepOnError) process.exit(1);
   }
 }
@@ -53,4 +62,5 @@ if (!only || only === 'spdp') {
 await refresh('osm', () => loadOsm({ forceLive: true }), (d) => `${d.length} parkeerplekken`);
 await refresh('places', () => loadPlaces({ forceLive: true }), (d) => `${d.length} bedrijven`);
 
+if (!only) await writeFile(path.join(DATA_DIR, 'snapshot', 'refresh-status.json'), JSON.stringify(report, null, 2));
 if (failures) console.warn(`${failures} bron(nen) niet ververst.`);

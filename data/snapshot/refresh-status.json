@@ -1,0 +1,25 @@
+{
+  "checkedAt": 1795613943603,
+  "sources": {
+    "rdw": {
+      "ok": true,
+      "savedAt": 1795613944322,
+      "count": "3537 rijen"
+    },
+    "spdp": {
+      "ok": true,
+      "savedAt": 1795613945027,
+      "count": "27 locaties"
+    },
+    "osm": {
+      "ok": true,
+      "savedAt": 1795613981575,
+      "count": "1374 parkeerplekken"
+    },
+    "places": {
+      "ok": true,
+      "skipped": true,
+      "savedAt": 1795013340872
+    }
+  }
+}

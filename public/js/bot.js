@@ -134,7 +134,7 @@ export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAva
       mode === 'rules'
         ? '<p class="muted-note">Ik werk direct in je browser, zonder account. Snap ik je vraag niet, dan kan ik een klein AI-model gebruiken dat ook in je browser draait, bijvoorbeeld bij "ik heb kiespijn" of "waar kan ik patat halen". Je kunt ook doorvragen, zoals "dichterbij?" of "wat kost de tweede?".</p>'
         : '';
-    bubble('bot', `<p>Hoi! Ik ben de ParkSmart-assistent. Vertel waar je heen gaat in Den Bosch en hoe lang je blijft, dan zoek ik de goedkoopste en handigste parkeerplek.</p>${extra}`);
+    bubble('bot', `<p>Hoi, ik ben de ParkSmart-assistent. Vertel waar je heen gaat in Den Bosch en hoe lang je blijft, dan zoek ik de goedkoopste en handigste parkeerplek.</p><p class="muted-note ai-note">Ik gebruik AI en kan fouten maken. Weet ik iets niet zeker, dan zeg ik dat. Controleer prijzen en tijden altijd op de borden ter plaatse.</p>${extra}`);
     const chips = document.createElement('div');
     chips.className = 'bot-examples';
     chips.innerHTML = EXAMPLES.map((e) => `<button type="button" class="chip">${esc(e)}</button>`).join('');

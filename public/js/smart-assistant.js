@@ -6,8 +6,20 @@
 import { checkVisit } from './hours.js';
 import { eur, duration, distance } from './format.js';
 import { SEMANTIC, aiQuery } from './semantic.js';
+import { clockTime } from './summary.js';
 
-const AI_NOTE = 'Gevonden met AI: een taalmodel dat in je browser draait, in onze eigen lijst met bedrijven uit OpenStreetMap. Klopt het niet? Typ dan de naam van de zaak.';
+// ---------- Geen vleierij: een stelling van de gebruiker checken we, in plaats van mee te praten ----------
+const CLAIM = /\b(toch|klopt (het|dat)|is het waar|heb gehoord|volgens mij|ik dacht|je zei|jij zei|zei je|weet ik zeker|zeker weten|jawel|echt wel|wel degelijk|nee hoor)\b/;
+const SAID = /\b(je zei|jij zei|zei je)\b/;
+const OCCUPANCY = /\b(druk|vol|nog plek|plek vrij|plekken vrij|vrije plekk?e?n?|nog ruimte|bezetting|bezet)\b/;
+// Feiten uit het tarievenbesluit 2026 van de gemeente (server/config.js: DECREE_TARIFFS en GARAGE_EVENING)
+const SUNDAY_FACT =
+  'Nee, dat klopt niet overal. In de gemeentelijke garages betaal je op zondag gewoon: tot 12:00 het avondtarief van € 1,50 per uur, daarna het gewone tarief. Alleen garage Sint Josephstraat is op zondag tot 14:00 gratis. In de betaalzones verschilt het per zone. Noem je bestemming en de tijd, dan reken ik het voor je uit.';
+const EVENING_FACT =
+  "Nee, dat klopt niet overal. In de gemeentelijke garages betaal je 's avonds en 's nachts € 1,50 per uur, met een maximum van € 7,50 (op donderdag pas vanaf 21:00). In de betaalzones verschilt het per zone. Noem je bestemming en de tijd, dan reken ik het voor je uit.";
+const NO_OCCUPANCY = 'Van de meeste garages en zones is geen actuele bezetting bekend; alleen een paar P+R-terreinen geven die door.';
+
+const AI_NOTE = 'Gevonden met AI: een taalmodel dat in je browser draait, in onze eigen lijst met bedrijven uit OpenStreetMap. AI kan zich vergissen. Klopt het niet? Typ dan de naam van de zaak.';
 // Dingen die niet in onze data zitten: eerlijk zeggen in plaats van het AI-model iets te laten gokken
 const UNSUPPORTED = /\b(gehandicapt\w*|invalide\w*|mindervalide\w*|laadpa(?:al|len)|laadpunt\w*|oplaadpunt\w*|opladen|elektrisch laden|camper\w*|vrachtwagen\w*)\b/;
 const UNSUPPORTED_TEXT =
@@ -43,8 +55,9 @@ const HELP =
   '- **2 uur bij de HEMA**\n- **zaterdag 14:00 drie uur naar de Sint-Jan, max 10 minuten lopen**\n- **gratis parkeren bij het station**\n' +
   'Daarna kun je doorvragen: "en voor 4 uur?", "dichterbij?", "alleen garages", "wat kost de tweede?" of "is de HEMA zaterdag open?".';
 
-export function createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl, semantic = null }) {
+export function createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl, semantic = null, freshness = () => null }) {
   let last = null; // laatste zoekresultaat (zelfde volgorde als het kaartje in de chat)
+  let lastSaid = null; // eerste zin van het laatste antwoord met een prijs (voor "je zei net …")
   let lastPlace = null; // laatste winkel waar een openingstijdenvraag over ging
   let pendingTrip = null; // tijd/duur uit een vraag waarbij we eerst moesten vragen welke zaak je bedoelt
 
@@ -144,8 +157,14 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     }
     last = sum;
     if (best.occupancy) parts.push(`Er zijn ${best.occupancy.vacant} van de ${best.occupancy.capacity} plekken vrij (stand ${best.occupancy.reading_time}).`);
-    if (best.source_trust === 'community') parts.push('Deze plek komt uit OpenStreetMap: check ter plaatse de borden.');
-    if (best.source_trust === 'estimate') parts.push('Dit bedrag is een schatting op basis van het tarief van vorig jaar.');
+    if (best.source_trust === 'community') parts.push(`Deze plek komt uit OpenStreetMap, niet van de gemeente. Of hij echt ${best.total_eur === 0 ? 'gratis' : 'dit kost'} is, weet ik niet zeker: check ter plaatse de borden.`);
+    // Wat we niet zeker weten, zeggen we erbij
+    if ([...opts, best].some((o) => o.source_trust === 'estimate')) {
+      const year = Number(String(sum.arrival).slice(0, 4));
+      parts.push(`De garagetarieven voor ${year} zijn nog niet bekend. Bedragen met ≈ zijn een schatting op basis van ${year - 1}; zeker weet ik ze niet.`);
+    }
+    const fresh = freshness();
+    if (fresh?.stale) parts.push(`Let op: de tarieven zijn voor het laatst bijgewerkt op ${fresh.dateLabel}. Of ze nog kloppen, weet ik niet zeker.`);
     const fn = filterNote(sum);
     if (fn) parts.push(fn);
     const vn = visitNote(sum);
@@ -173,6 +192,9 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       let score = 0;
       if (phrase.length >= 4 && ` ${t} `.includes(` ${phrase} `)) score = 10 + phrase.length;
       else score = toks.filter((w) => w.length >= 6 && ` ${t} `.includes(` ${w} `)).length; // heel woord: "tolbrug" ≠ "tolbrugstraat"
+      // "garage Paleiskwartier" naast "Zone Paleiskwartier": het genoemde soort wint
+      if (score && /\bgarage\b/.test(t) && /garage/i.test(o.name)) score += 2;
+      if (score && /\bzone\b/.test(t) && /^zone\b/i.test(o.name)) score += 2;
       if (score && (!best || score > best.score)) best = { o, score };
     }
     return best?.o ?? null;
@@ -272,7 +294,7 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       if (!semantic.consented?.()) {
         return {
           intent: 'ai_offer',
-          text: `Met mijn vaste regels snap ik niet waar je heen wilt. Ik kan het ook met AI proberen: een klein taalmodel dat helemaal in je browser draait, dus je vraag gaat nergens heen. Daarvoor download ik eenmalig ongeveer ${SEMANTIC.downloadMb} MB; daarna gaat het meteen.\n\nLiever niet? Noem dan een winkel, straat of bekende plek, bijvoorbeeld **2 uur bij de HEMA**.`,
+          text: `Met mijn vaste regels snap ik niet waar je heen wilt. Ik kan het ook met AI proberen: een klein taalmodel dat helemaal in je browser draait, dus je vraag gaat nergens heen. AI kan zich vergissen; ik zeg er altijd bij als ik het heb gebruikt. Daarvoor download ik eenmalig ongeveer ${SEMANTIC.downloadMb} MB; daarna gaat het meteen.\n\nLiever niet? Noem dan een winkel, straat of bekende plek, bijvoorbeeld **2 uur bij de HEMA**.`,
           actions: [{ label: 'Probeer het met AI', aiLoad: true, ask: text }],
         };
       }
@@ -316,9 +338,73 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     return { intent: 'ai_suggest', text: `Ik weet het niet zeker${hint}. Bedoel je misschien een van deze?`, actions: options.slice(0, 4), note: AI_NOTE, ai: m };
   }
 
+  // ---------- Stellingen en bezetting: feiten in plaats van meepraten ----------
+  const amountIn = (text) => {
+    const m = /(?:€\s*(\d+(?:[.,]\d{1,2})?)|(\d+(?:[.,]\d{1,2})?)\s*(?:euro|eur\b|per uur|het uur|p\/u))/i.exec(text);
+    return m ? parseFloat((m[1] ?? m[2]).replace(',', '.')) : null;
+  };
+  const claimKind = (text, t) => ({
+    free: /\bgratis\b/.test(t),
+    cheapest: /\bgoedkoopst/.test(t),
+    amount: amountIn(text),
+    perHour: /\b(per uur|het uur|p\/u)\b/.test(String(text).toLowerCase()),
+  });
+  const liveLine = (o) => `**${o.name}**: ${o.live.vacant} van de ${o.live.capacity} plekken vrij (stand ${clockTime(o.live.updatedAt)})`;
+
+  function occupancyAnswer(text) {
+    const o = findMentionedOption(text);
+    const opts = state.results?.options ?? [];
+    if (o) {
+      if (!o.live) return { intent: 'occupancy', text: `Dat weet ik niet: **${o.name}** geeft geen actuele bezetting door. ${NO_OCCUPANCY}`, pick: o.id };
+      const nearlyFull = o.live.capacity && o.live.vacant / o.live.capacity < 0.1;
+      return { intent: 'occupancy', text: `${liveLine(o)}.${nearlyFull ? ' Het is daar bijna vol.' : ''}`, pick: o.id };
+    }
+    const withLive = opts.filter((x) => x.live);
+    if (withLive.length) return { intent: 'occupancy', text: `Dit weet ik van de opties in de lijst:\n${withLive.slice(0, 4).map((x) => `- ${liveLine(x)}`).join('\n')}\n\nVan de andere opties weet ik niet hoe vol ze zijn.` };
+    return { intent: 'occupancy', text: `Dat weet ik niet. ${NO_OCCUPANCY}${opts.length ? '' : ' Noem waar je heen gaat, dan zoek ik de opties erbij.'}` };
+  }
+
+  // Een stelling ("Wolvenhoek is toch het goedkoopst?") toetsen aan de berekende prijzen.
+  // Geeft null als er niets te toetsen is; dan gaat de vraag gewoon door.
+  function claimAnswer(text, t) {
+    if (SAID.test(t)) {
+      return lastSaid
+        ? { intent: 'said', text: `Dit zei ik als laatste: "${lastSaid}"\n\nBedoel je iets anders? Noem de plek, dan reken ik het opnieuw uit.` }
+        : { intent: 'said', text: 'In dit gesprek heb ik nog geen prijs genoemd. Noem waar je heen gaat, dan reken ik het uit.' };
+    }
+    const c = claimKind(text, t);
+    const o = findMentionedOption(text);
+    if (o) {
+      const p = o.price;
+      const dur = duration(state.durationMin);
+      if (!p.known || !p.feasible) return { intent: 'claim', text: `Dat weet ik niet zeker: voor **${o.name}** heb ik geen prijs voor ${dur} (${p.reason}).`, pick: o.id };
+      const priceTxt = p.total === 0 ? 'gratis' : `${p.estimated ? '≈ ' : ''}${eur(p.total)}`;
+      if (c.cheapest) {
+        const top = last ? priced(last)[0] : null;
+        if (top?.id === o.id) return { intent: 'claim', text: `Ja, dat klopt: **${o.name}** is nu het goedkoopst, ${priceTxt} voor ${dur}.`, pick: o.id };
+        if (top && p.total <= top.total_eur + 0.004) return { intent: 'claim', text: `Ja, dat klopt: **${o.name}** is samen met ${top.name} het goedkoopst, ${priceTxt} voor ${dur}.`, pick: o.id };
+        if (top) return { intent: 'claim', text: `Nee, dat klopt niet. **${o.name}** kost ${priceTxt} voor ${dur}. Het goedkoopst is **${top.name}**: ${price(top)}, ${walk(top)}.`, pick: o.id };
+      }
+      if (c.free) return { intent: 'claim', text: p.total === 0 ? `Ja, dat klopt: **${o.name}** is gratis voor ${dur}.` : `Nee, dat klopt niet: **${o.name}** kost **${priceTxt}** voor ${dur}.`, pick: o.id };
+      if (c.amount != null) {
+        const actual = c.perHour ? p.perHour : p.total;
+        if (actual == null) return null;
+        const ok = Math.abs(actual - c.amount) < 0.005;
+        const fact = c.perHour ? `gemiddeld ${eur(actual)} per uur (${priceTxt} voor ${dur})` : `${priceTxt} voor ${dur}`;
+        return { intent: 'claim', text: ok ? `Ja, dat klopt: **${o.name}** kost ${fact}.` : `Nee, dat klopt niet: **${o.name}** kost ${fact}.`, pick: o.id };
+      }
+      return null;
+    }
+    // Algemene stellingen zonder plek
+    if (c.free && /\bzondag/.test(t)) return { intent: 'claim', text: SUNDAY_FACT };
+    if (c.free && /\b(avond|s avonds|savonds|na 18|nacht|s nachts)\b/.test(t)) return { intent: 'claim', text: EVENING_FACT };
+    return null;
+  }
+
   // ---------- Hoofdlogica ----------
   async function turn(text) {
     const r = await route(text);
+    if (r?.text && ['search', 'refine', 'ai_search', 'detail', 'claim'].includes(r.intent)) lastSaid = r.text.split('\n')[0].replace(/\*\*/g, '').trim();
     return r;
   }
 
@@ -327,7 +413,7 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     const t = norm(text);
     if (!t) return { intent: 'help', text: HELP };
     const words = t.split(' ').length;
-    if (RE.thanks.test(t) && words <= 4) return { intent: 'thanks', text: 'Graag gedaan! Vraag gerust verder als je ergens anders heen wilt of de tijd verandert.' };
+    if (RE.thanks.test(t) && words <= 4) return { intent: 'thanks', text: 'Graag gedaan. Vraag gerust verder als je ergens anders heen wilt of de tijd verandert.' };
     if ((RE.greet.test(t) && words <= 4) || RE.help.test(t)) return { intent: 'help', text: HELP };
 
     if (RE.navigate.test(t)) {
@@ -335,6 +421,14 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       if (!o) return { intent: 'navigate', text: 'Zoek eerst een parkeerplek, dan geef ik je een navigatieknop. Bijvoorbeeld: **2 uur bij de Markt**.' };
       return { intent: 'navigate', text: `Hier is de route naar **${o.name}**. Je kunt ook in de lijst op een optie tikken en op Navigeer drukken.`, actions: [{ label: `Navigeer naar ${o.name}`, href: navUrl(o) }], pick: o.id };
     }
+
+    // Een stelling of een vraag over hoe vol het is: eerst de feiten, niet meepraten
+    const isClaim = CLAIM.test(t);
+    if (isClaim) {
+      const r = claimAnswer(text, t);
+      if (r) return r;
+    }
+    if (OCCUPANCY.test(t) && (state.results || words <= 8)) return occupancyAnswer(text);
 
     // "die op de Tolbrugstraat" na een zoekopdracht naar een keten: dezelfde winkel, andere vestiging
     const branch = /^(?:en )?(?:die|de|het|degene|diegene|eentje)\s+(?:op|aan|in|bij)\s+(?:de |het )?(.+)$/.exec(t);
@@ -358,6 +452,12 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     }
 
     const parsed = await api.aiParse(text);
+    // Bij een stelling ("kost toch 1 euro?", "is toch gratis?") zijn bedrag en "gratis" geen filter
+    if (isClaim) {
+      parsed.max_price_eur = null;
+      if (/\bgratis\b/.test(t)) parsed.types = null;
+    }
+    const dateNote = parsed.invalid_date ? `"${parsed.invalid_date}" is geen bestaande datum, dus die heb ik niet gebruikt.` : null;
     // "tot middernacht" zonder nieuwe begintijd: rekenen vanaf de aankomst die al gekozen was
     if (parsed.until && parsed.until_from_now && state.arrivalMode === 'later' && state.arrival) {
       const [uh, um] = parsed.until.split(':').map(Number);
@@ -495,6 +595,12 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       preferWalk: RE.closer.test(t) || parsed.sort === 'walk',
     });
     if (UNSUPPORTED.test(t)) answer.text += '\n\nLet op: gehandicaptenparkeerplaatsen, laadpalen en plekken voor campers zitten nog niet in ParkSmart.';
+    if (dateNote) answer.text = `${dateNote}\n\n${answer.text}`;
+    // Was het een stelling? Dan nu, met de nieuwe prijzen, eerlijk zeggen of hij klopt
+    if (isClaim) {
+      const r = claimAnswer(text, t);
+      if (r) return { ...r, results: answer.results, actions: answer.actions };
+    }
     if (aiHit) return { intent: 'ai_search', ...answer, text: `${aiHit.prefix}\n\n${answer.text}`, note: AI_NOTE, ai: aiHit.ai };
     return { intent: isNewTrip ? 'search' : 'refine', ...answer };
   }

@@ -19,10 +19,11 @@ const AI_OFF = {
 
 let ready = null;
 let liveInfo = null;
+let refreshInfo = null;
 function ensure() {
   ready ??= (async () => {
     await loadRdw();
-    await Promise.all([loadSpdp([]), loadOsm(), loadPlaces(), loadLive()]);
+    await Promise.all([loadSpdp([]), loadOsm(), loadPlaces(), loadLive(), loadRefresh()]);
   })().catch((err) => {
     ready = null;
     throw err;
@@ -40,6 +41,16 @@ async function loadLive() {
     setLiveProvider(async (uuid) => map.get(uuid) ?? null, { maxAgeMin: 90 });
   } catch {
     setLiveProvider(async () => null);
+  }
+}
+
+// Verslag van de laatste ververs-ronde van de GitHub Action: wanneer gecontroleerd, en of het lukte
+async function loadRefresh() {
+  try {
+    const res = await fetch(new URL('../data/refresh-status.json', import.meta.url), { cache: 'no-cache' });
+    refreshInfo = res.ok ? await res.json() : null;
+  } catch {
+    refreshInfo = null;
   }
 }
 
@@ -64,6 +75,7 @@ export const localApi = {
       ai: AI_OFF,
       static: true,
       live: liveInfo,
+      refresh: refreshInfo,
       data: { rdw: rdwStatus(), spdp: spdpStatus(), osm: osmStatus(), places: placesStatus() },
     };
   },

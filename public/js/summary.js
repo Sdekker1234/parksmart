@@ -8,6 +8,23 @@ export const clampDuration = (m) => Math.min(7 * 1440, Math.max(15, Math.round(m
 export const shortLabel = (s) => String(s || '').replace(/, 's-Hertogenbosch$/, '');
 export const clockTime = (ts) => new Date(ts).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Amsterdam' });
 
+// Hoe actueel zijn de tarieven? De zones (RDW) worden elke nacht ververst. Zijn ze ouder dan twee
+// dagen, dan zegt de app dat hij niet zeker weet of de prijzen nog kloppen.
+export const STALE_AFTER_MS = 48 * 3600e3;
+export function ratesFreshness(status, now = Date.now()) {
+  const at = status?.data?.rdw?.savedAt;
+  if (!at) return null;
+  const check = status.refresh?.sources?.rdw;
+  return {
+    at,
+    stale: now - at > STALE_AFTER_MS,
+    lastCheckFailed: Boolean(check && !check.ok),
+    checkedAt: status.refresh?.checkedAt ?? null,
+    dateLabel: new Date(at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', timeZone: 'Europe/Amsterdam' }),
+    timeLabel: clockTime(at),
+  };
+}
+
 // Zoekresultaat (adres, snelkeuze of bedrijf) -> bestemming. Bedrijven hebben extra info (categorie, openingstijden).
 export function toDest(r, extra = {}) {
   const isPlace = String(r.id || '').startsWith('place-');

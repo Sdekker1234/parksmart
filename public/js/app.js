@@ -4,7 +4,7 @@ import { createMap } from './map.js';
 import { createBot } from './bot.js';
 import { createSmartAssistant } from './smart-assistant.js';
 import { createBrowserSemantic } from './semantic-browser.js';
-import { ALL_TYPES, DEFAULT_WALK, toDest, applySearchParams, visibleOptions, buildSummary, clockTime } from './summary.js';
+import { ALL_TYPES, DEFAULT_WALK, toDest, applySearchParams, visibleOptions, buildSummary, clockTime, ratesFreshness } from './summary.js';
 import { eur, eurShort, duration, distance, localIso, nowRounded, arrivalLabel, timeAgo, esc } from './format.js';
 
 const $ = (s) => document.querySelector(s);
@@ -482,7 +482,7 @@ let smart;
 // AI-zoeken in de browser (pas geladen als de gebruiker het nodig heeft en ja zegt)
 const semantic = createBrowserSemantic();
 const rulesTurn = (text) => {
-  smart ??= createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl, semantic });
+  smart ??= createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl, semantic, freshness: () => ratesFreshness(state.status) });
   return smart.turn(text);
 };
 
@@ -542,6 +542,7 @@ function render({ fit = false, advice = true } = {}) {
     $('#results').innerHTML = '';
     $('#excluded').hidden = true;
     $('#advice').hidden = true;
+    $('#ratesNote').hidden = true;
     mapApi?.setOptions([], {});
     return;
   }
@@ -552,6 +553,7 @@ function render({ fit = false, advice = true } = {}) {
   $('#resultsCount').innerHTML = list.length
     ? `<b>${list.length} ${list.length === 1 ? 'optie' : 'opties'}</b> · <span class="nw">${duration(state.durationMin)}</span> vanaf <span class="nw">${esc(arrivalLabel(state.results.arrival))}</span>${save >= 0.5 ? ` · <span class="nw">bespaar tot <b>${eur(save)}</b></span>` : ''}`
     : 'Geen opties binnen je filters';
+  renderRatesNote();
 
   const recId = state.advice?.recommended_id;
   $('#results').innerHTML = list.length
@@ -778,6 +780,24 @@ function renderAiStatus() {
     'De ParkSmart-assistent werkt met vaste regels. Snapt hij een vraag niet ("ik heb kiespijn"), dan kan hij na je toestemming een klein AI-taalmodel gebruiken dat in je browser draait (paraphrase-multilingual-MiniLM-L12-v2, eenmalig ±135 MB). Dat zoekt op betekenis in onze eigen lijst met bedrijven en plekken; je vraag gaat nergens heen. Antwoorden waarbij AI is gebruikt, staan als zodanig gemarkeerd. Prijzen rekent ParkSmart altijd zelf uit uit de bronnen hierboven, nooit met AI. In de servervariant kan ook Claude meedoen als dat is ingesteld.';
 }
 
+// Onder de resultaten: hoe actueel de tarieven zijn, en wat we niet zeker weten
+function renderRatesNote() {
+  const el = $('#ratesNote');
+  const f = ratesFreshness(state.status);
+  const year = Number(String(state.results?.arrival ?? '').slice(0, 4));
+  const estimated = (state.results?.options ?? []).some((o) => o.price?.estimated);
+  const parts = [];
+  if (f?.stale) {
+    parts.push(`Let op: de tarieven zijn voor het laatst bijgewerkt op ${f.dateLabel}. Of ze nog kloppen, weet ik niet zeker: controleer de borden en de automaat.`);
+  } else if (f) {
+    parts.push(`Tarieven: RDW, bijgewerkt ${f.dateLabel} om ${f.timeLabel}; garages volgens het tarievenbesluit van de gemeente. Controleer altijd de borden ter plaatse.`);
+  }
+  if (estimated && year) parts.push(`De garagetarieven voor ${year} zijn nog niet bekend; bedragen met ≈ zijn een schatting op basis van ${year - 1}.`);
+  el.hidden = !parts.length;
+  el.classList.toggle('is-warn', Boolean(f?.stale));
+  el.textContent = parts.join(' ');
+}
+
 function renderDataLine() {
   const d = state.status.data;
   const label = { rdw: 'RDW-zones', spdp: 'RDW-locaties', osm: 'OpenStreetMap', places: 'Bedrijven' };
@@ -791,7 +811,11 @@ function renderDataLine() {
       ? `<span class="pill">Bezetting P+R: stand ${clockTime(state.status.live.generatedAt)}</span>`
       : '<span class="pill is-warn">Bezetting P+R: niet beschikbaar</span>'
     : '';
-  $('#dataLine').innerHTML = `${Object.entries(d).map(([k, v]) => pill(k, v)).join('')}${live}<span class="pill">Garagetarieven: gemeentebesluit</span>`;
+  const f = ratesFreshness(state.status);
+  const check = state.status.refresh?.checkedAt
+    ? `<span class="pill${f?.lastCheckFailed ? ' is-warn' : ''}">Laatste controle: ${new Date(state.status.refresh.checkedAt).toLocaleDateString('nl-NL')} ${clockTime(state.status.refresh.checkedAt)}${f?.lastCheckFailed ? ', RDW niet bereikbaar' : ''}</span>`
+    : '';
+  $('#dataLine').innerHTML = `${Object.entries(d).map(([k, v]) => pill(k, v)).join('')}${live}${check}<span class="pill">Garagetarieven: tarievenbesluit gemeente</span>`;
 }
 
 // ---------- URL-staat (deelbare links) ----------

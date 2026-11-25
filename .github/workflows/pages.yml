@@ -38,6 +38,17 @@ jobs:
           path: .cache/transformers
           key: hf-paraphrase-multilingual-MiniLM-L12-v2-2c4055b1
 
+      # De nieuwste momentopname van de vorige run terugzetten. Zonder deze stap bouwde elke run van het
+      # halfuur de site opnieuw met de oude data uit de repo, en verdwenen 's nachts ververste tarieven.
+      - name: Laatste momentopname uit de cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/snapshot
+          key: snapshot-${{ github.run_id }}
+          restore-keys: snapshot-
+      - name: Nieuwste data per bron kiezen (repo of vorige run)
+        run: node scripts/merge-snapshot.js .cache/snapshot
+
       - name: Tarieven, locaties en bedrijven verversen
         if: github.event_name != 'schedule' || github.event.schedule == '15 3 * * *'
         run: node scripts/make-snapshot.js --keep-on-error
@@ -70,9 +81,16 @@ jobs:
           exit 1
 
       - name: Tariefregels, parser, openingstijden en AI-zoeken testen
-        run: node --test server/pricing.test.js shared/rules.test.js shared/hours.test.js shared/bot.test.js shared/semantic.test.js
+        run: node --test server/pricing.test.js shared/rules.test.js shared/hours.test.js shared/bot.test.js shared/semantic.test.js shared/honesty.test.js
 
       - run: npm run build:pages
+
+      - name: Momentopname bewaren voor de volgende run
+        run: rm -rf .cache/snapshot && mkdir -p .cache && cp -r data/snapshot .cache/snapshot
+      - uses: actions/cache/save@v4
+        with:
+          path: .cache/snapshot
+          key: snapshot-${{ github.run_id }}-${{ github.run_attempt }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

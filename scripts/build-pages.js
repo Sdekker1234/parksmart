@@ -33,6 +33,7 @@ await cp(path.join(root, 'web', 'cache.js'), path.join(dist, 'engine', 'cache.js
 await cp(path.join(root, 'data', 'snapshot'), path.join(dist, 'data'), { recursive: true });
 if (await exists(path.join(root, 'data', 'live.json'))) await cp(path.join(root, 'data', 'live.json'), path.join(dist, 'data', 'live.json'));
 
+
 // 4. Statische modus aanzetten in index.html
 const indexPath = path.join(dist, 'index.html');
 let html = await readFile(indexPath, 'utf8');

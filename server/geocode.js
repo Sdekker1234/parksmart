@@ -50,6 +50,9 @@ async function pdokSuggest(q, rows = 6) {
 }
 
 async function nominatim(q) {
+  // In de browser (statische versie) blokkeert Nominatim verzoeken (geen CORS-header), en de zoekterm
+  // zou dan alleen onnodig naar een derde partij gaan. Daar slaan we deze reserve dus over.
+  if (typeof window !== 'undefined') return [];
   const b = CITY.bbox;
   const url = `https://nominatim.openstreetmap.org/search?${new URLSearchParams({
     q,

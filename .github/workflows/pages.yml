@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # om de meetreeks bezetting in de branch "bezetting" bij te schrijven
   pages: write
   id-token: write
 
@@ -47,6 +47,27 @@ jobs:
 
       - name: Bezetting P+R ophalen
         run: node scripts/fetch-live.js || echo "Bezetting nu niet beschikbaar"
+
+      # Meetreeks voor de voorspelling: nieuwe standen als regels in een CSV in de branch "bezetting".
+      # Mag mislukken zonder dat de site niet online komt.
+      - name: Bezetting bewaren (meetreeks voor de voorspelling)
+        continue-on-error: true
+        run: |
+          test -f data/live.json || { echo "Geen live.json, niets te bewaren"; exit 0; }
+          git fetch --depth=1 origin bezetting
+          git worktree add --detach ../bezetting FETCH_HEAD
+          node scripts/record-occupancy.js ../bezetting
+          cd ../bezetting
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then echo "Geen nieuwe metingen"; exit 0; fi
+          git commit -q -m "Bezetting $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do
+            git push -q origin HEAD:bezetting && exit 0
+            git fetch --depth=20 origin bezetting && git rebase -q FETCH_HEAD
+          done
+          exit 1
 
       - name: Tariefregels, parser, openingstijden en AI-zoeken testen
         run: node --test server/pricing.test.js shared/rules.test.js shared/hours.test.js shared/bot.test.js shared/semantic.test.js

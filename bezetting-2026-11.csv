@@ -1,3 +1,5 @@
 meting_lokaal,meting_utc,opgehaald_utc,dag,uur,minuut,locatie_id,locatie,vrij,capaciteit,bezet_pct,open,vol
 2026-11-25T14:26,2026-11-25T13:26:10.000Z,2026-11-25T13:28:26.520Z,wo,14,26,695cef16-b614-4489-b32a-687aca22dd4e,P+R Mayweg ('s-Hertogenbosch),317,353,10.2,true,false
 2026-11-25T14:20,2026-11-25T13:20:40.000Z,2026-11-25T13:28:26.520Z,wo,14,20,f1807d7c-176c-44f2-8fbc-a09b18c5aa69,P+R Magistratenlaan ('s-Hertogenbosch),7,133,94.7,true,false
+2026-11-25T14:29,2026-11-25T13:29:40.000Z,2026-11-25T13:31:01.951Z,wo,14,29,f1807d7c-176c-44f2-8fbc-a09b18c5aa69,P+R Magistratenlaan ('s-Hertogenbosch),6,133,95.5,true,false
+2026-11-25T14:29,2026-11-25T13:29:37.000Z,2026-11-25T13:31:01.951Z,wo,14,29,695cef16-b614-4489-b32a-687aca22dd4e,P+R Mayweg ('s-Hertogenbosch),317,353,10.2,true,false

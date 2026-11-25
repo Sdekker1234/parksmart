@@ -63,7 +63,13 @@ Boven de AI-limiet valt de app terug op de ingebouwde regels, dus hij blijft wer
 ## Tarieven bijwerken (jaarlijks)
 
 - **Straatparkeren** gaat vanzelf: RDW publiceert de tarieven van het volgende jaar al vooruit (2027 staat er al in).
-- **Garages en transferia** komen uit het gemeentebesluit. Dat verschijnt meestal half december op [lokaleregelgeving.overheid.nl](https://lokaleregelgeving.overheid.nl). Voeg dan in `server/config.js` bij `DECREE_TARIFFS` een blok toe voor het nieuwe jaar. Tot die tijd toont de app garageprijzen in het nieuwe jaar met **≈** en het label **Schatting**.
+- **Garages en transferia** komen uit het gemeentebesluit. Dat verschijnt meestal half december op [lokaleregelgeving.overheid.nl](https://lokaleregelgeving.overheid.nl). Voeg dan in `server/config.js` bij `DECREE_TARIFFS` een blok toe voor het nieuwe jaar. Tot die tijd toont de app garageprijzen in het nieuwe jaar met **≈** en het label **Schatting**. Op 25 november 2026 nagekeken: de bedragen in de app kloppen met het besluit 2026 (CVDR750485).
+
+### Hoe actueel zijn de prijzen?
+
+- De GitHub Action ververst de tarieven elke nacht (en bij elke push). Elke run zet eerst de nieuwste momentopname van de vorige run terug uit de cache (`scripts/merge-snapshot.js`); anders bouwde de run van het halfuur de site weer met de oude data uit de repo.
+- `make-snapshot.js` schrijft `data/snapshot/refresh-status.json`: per bron of de laatste poging lukte, met de foutmelding. Online te zien op `data/refresh-status.json` en in de databalk onderaan de app.
+- Onder de resultaten staat wanneer de tarieven zijn bijgewerkt. Ouder dan 2 dagen (`STALE_AFTER_MS` in `public/js/summary.js`): een waarschuwing in de lijst en in de assistent dat hij niet zeker weet of de prijzen nog kloppen.
 
 ## ParkSmart-assistent (chatbot)
 
@@ -78,6 +84,13 @@ Rechtsonder zit de **Assistent**. Online werkt hij standaard **zonder account, s
 | Navigeren | "navigeer" (knop naar Google Maps) |
 
 Antwoorden noemen de goedkoopste optie, een alternatief met minder lopen, de bezetting (als bekend), actieve filters en de betrouwbaarheid van de bron.
+
+### Eerlijk: geen vleierij, en "ik weet het niet"
+
+- In het chatvenster, de begroeting en onderaan de pagina staat dat de assistent AI gebruikt en fouten kan maken.
+- Een stelling van de gebruiker ("Wolvenhoek is toch het goedkoopst?", "kost toch 1 euro per uur?", "op zondag is het toch gratis?") wordt getoetst aan de berekende prijzen: "Ja, dat klopt" of "Nee, dat klopt niet", met het juiste bedrag, ook als de gebruiker aandringt. Een bedrag of "gratis" in een stelling wordt geen filter.
+- "Dat weet ik niet" bij: bezetting zonder live data, gratis plekken uit OpenStreetMap ("of hij echt gratis is, weet ik niet zeker"), garagetarieven voor een jaar zonder besluit, onmogelijke datums, en verouderde tarieven.
+- Testgevallen: `HONESTY` in `scripts/bot-scenarios.js`. De Claude-prompt (servervariant, `shared/bot.js`) heeft dezelfde regels.
 
 ### AI-zoeken in de browser (zonder account)
 

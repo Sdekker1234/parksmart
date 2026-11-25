@@ -775,7 +775,7 @@ function showMessage(text, isError = false) {
 
 function renderAiStatus() {
   $('#infoAi').textContent =
-    'De ParkSmart-assistent gebruikt Claude als die is ingesteld. Claude kiest welke zoekopdrachten nodig zijn, maar de prijzen rekent ParkSmart zelf uit uit de bronnen hierboven; de AI krijgt alleen die berekende feiten. Zonder AI beantwoordt de assistent je vragen met ingebouwde regels.';
+    'De ParkSmart-assistent werkt met vaste regels. Snapt hij een vraag niet ("ik heb kiespijn"), dan kan hij na je toestemming een klein AI-taalmodel gebruiken dat in je browser draait (paraphrase-multilingual-MiniLM-L12-v2, eenmalig ±135 MB). Dat zoekt op betekenis in onze eigen lijst met bedrijven en plekken; je vraag gaat nergens heen. Antwoorden waarbij AI is gebruikt, staan als zodanig gemarkeerd. Prijzen rekent ParkSmart altijd zelf uit uit de bronnen hierboven, nooit met AI. In de servervariant kan ook Claude meedoen als dat is ingesteld.';
 }
 
 function renderDataLine() {

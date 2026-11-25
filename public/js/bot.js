@@ -41,12 +41,19 @@ function md(text) {
   return out.join('');
 }
 
+// Knoppen onder een antwoord: een link (navigatie), een vraag die we meteen stellen, of het AI-model laden.
 const actionsHtml = (actions) =>
   actions?.length
-    ? `<div class="msg-actions">${actions.map((a) => `<a class="btn btn-nav btn-sm" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.label)}</a>`).join('')}</div>`
+    ? `<div class="msg-actions">${actions
+        .map((a, i) =>
+          a.href
+            ? `<a class="btn btn-nav btn-sm" href="${esc(a.href)}" target="_blank" rel="noopener">${esc(a.label)}</a>`
+            : `<button type="button" class="btn btn-sm ${a.aiLoad ? 'btn-ai' : 'btn-choice'}" data-action="${i}">${esc(a.label)}</button>`,
+        )
+        .join('')}</div>`
     : '';
 
-export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAvailable }) {
+export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAvailable, semantic = null }) {
   const $ = (s) => document.querySelector(s);
   const panel = $('#bot');
   const log = $('#botLog');
@@ -73,12 +80,19 @@ export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAva
   }
   const setMode = (m) => {
     mode = m;
-    modeEl.textContent = m === 'ai' ? 'Claude' : m === 'rules' ? 'Ingebouwd · zonder account' : '…';
-    modeEl.title = m === 'ai' ? 'Antwoorden door Claude; prijzen berekent ParkSmart zelf.' : 'Werkt direct in je browser, zonder account of externe AI. Prijzen uit officiële open data.';
-    modeEl.classList.toggle('is-ai', m === 'ai');
+    const local = semantic?.status() === 'ready';
+    modeEl.textContent = m === 'ai' ? 'Claude' : m === 'rules' ? (local ? 'Regels + AI in je browser' : 'Ingebouwd · zonder account') : '…';
+    modeEl.title =
+      m === 'ai'
+        ? 'Antwoorden door Claude; prijzen berekent ParkSmart zelf.'
+        : local
+          ? 'Vaste regels, en een AI-taalmodel dat in je browser draait als de regels je vraag niet snappen. Zonder account; je vraag gaat nergens heen. Prijzen uit officiële open data.'
+          : 'Werkt direct in je browser, zonder account. Snapt hij je vraag niet, dan kan hij een AI-model in je browser gebruiken. Prijzen uit officiële open data.';
+    modeEl.classList.toggle('is-ai', m === 'ai' || local);
   };
   setMode('checking');
   const modeReady = detectMode().then(setMode);
+  semantic?.onStatus(() => setMode(mode));
 
   // ---------- Weergave ----------
   const scrollDown = () => log.scrollTo({ top: log.scrollHeight, behavior: 'smooth' });
@@ -118,7 +132,7 @@ export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAva
     greeted = true;
     const extra =
       mode === 'rules'
-        ? '<p class="muted-note">Ik werk direct in je browser, zonder account. Je kunt ook doorvragen, zoals "dichterbij?", "wat kost de tweede?" of "is de HEMA zaterdag open?".</p>'
+        ? '<p class="muted-note">Ik werk direct in je browser, zonder account. Snap ik je vraag niet, dan kan ik een klein AI-model gebruiken dat ook in je browser draait, bijvoorbeeld bij "ik heb kiespijn" of "waar kan ik patat halen". Je kunt ook doorvragen, zoals "dichterbij?" of "wat kost de tweede?".</p>'
         : '';
     bubble('bot', `<p>Hoi! Ik ben de ParkSmart-assistent. Vertel waar je heen gaat in Den Bosch en hoe lang je blijft, dan zoek ik de goedkoopste en handigste parkeerplek.</p>${extra}`);
     const chips = document.createElement('div');
@@ -184,14 +198,51 @@ export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAva
     bubble('bot', '<p>Ik kwam er niet helemaal uit. Kun je je vraag iets anders stellen?</p>');
   }
 
-  // Antwoord van de ingebouwde assistent tonen (tekst, resultaatkaartje, navigatieknop, optie markeren).
+  // Antwoord van de ingebouwde assistent tonen (tekst, resultaatkaartje, knoppen, optie markeren).
+  // Antwoorden waarbij AI is gebruikt, krijgen er altijd een regel onder die dat zegt.
   function showRules(r) {
     if (r.results) resultCard(r.results);
-    bubble('bot', md(r.text) + actionsHtml(r.actions));
+    const note = r.note ? `<p class="muted-note ai-note">${esc(r.note)}</p>` : '';
+    const div = bubble('bot', md(r.text) + note + actionsHtml(r.actions));
+    div.querySelectorAll('[data-action]').forEach((b) =>
+      b.addEventListener('click', () => {
+        const a = r.actions[Number(b.dataset.action)];
+        div.querySelectorAll('[data-action]').forEach((x) => (x.disabled = true));
+        if (a.aiLoad) loadAi(a.ask);
+        else ask(a.ask);
+      }),
+    );
     if (r.pick) onFocus?.(r.pick);
   }
 
-  async function ask(question) {
+  const mb = (bytes) => Math.round(bytes / 1e6);
+  // AI-model eenmalig downloaden (met voortgang), daarna de vraag opnieuw stellen
+  async function loadAi(question) {
+    if (busy || !semantic) return;
+    busy = true;
+    sendBtn.disabled = true;
+    const ind = typing('AI-model downloaden…');
+    try {
+      await semantic.enable((p) => {
+        if (!p?.total) return;
+        ind.set(p.loaded >= p.total ? 'AI-model starten…' : `AI-model downloaden… ${Math.round(p.progress ?? 0)}% (${mb(p.loaded)} van ${mb(p.total)} MB)`);
+      });
+      ind.set('AI-model starten…');
+    } catch (err) {
+      ind.done();
+      bubble('bot', `<p>Het AI-model kon niet laden: ${esc(err.message)}. Probeer het later nog eens, of typ de naam van de zaak.</p>`, 'msg-note');
+      busy = false;
+      sendBtn.disabled = false;
+      return;
+    }
+    ind.done();
+    busy = false;
+    sendBtn.disabled = false;
+    bubble('bot', '<p>Het AI-model draait nu in je browser. Ik probeer je vraag opnieuw.</p>', 'msg-note');
+    ask(question, { silent: true });
+  }
+
+  async function ask(question, { silent = false } = {}) {
     const text = String(question || '').trim();
     if (!text || busy) return;
     await modeReady;
@@ -199,7 +250,7 @@ export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAva
     log.querySelector('.bot-examples')?.remove();
     busy = true;
     sendBtn.disabled = true;
-    bubble('user', `<p>${esc(text)}</p>`);
+    if (!silent) bubble('user', `<p>${esc(text)}</p>`);
     const ind = typing(mode === 'ai' ? 'Even denken…' : 'Zoeken…');
     try {
       if (messages.length > MAX_MESSAGES) {
@@ -239,6 +290,8 @@ export function createBot({ tools, getContext, rulesTurn, onPick, onFocus, aiAva
     document.body.classList.add('bot-open');
     $('#botFab').setAttribute('aria-expanded', 'true');
     modeReady.then(greet);
+    // Eerder al ja gezegd tegen het AI-model? Dan alvast starten (komt uit de browsercache, dus snel)
+    if (semantic?.consented?.() && semantic.status() === 'off') semantic.enable().catch(() => {});
     setTimeout(() => input.focus(), 50);
   };
   const close = () => {

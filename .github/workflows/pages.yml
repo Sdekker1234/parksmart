@@ -31,15 +31,25 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # Het AI-model (±135 MB) bewaren tussen runs; alleen nodig als de AI-zoeklijst opnieuw moet
+      - name: AI-model uit de cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/transformers
+          key: hf-paraphrase-multilingual-MiniLM-L12-v2-2c4055b1
+
       - name: Tarieven, locaties en bedrijven verversen
         if: github.event_name != 'schedule' || github.event.schedule == '15 3 * * *'
         run: node scripts/make-snapshot.js --keep-on-error
 
+      - name: AI-zoeklijst bijwerken (alleen als de bedrijven veranderd zijn)
+        run: node scripts/build-semantic.js --keep-on-error
+
       - name: Bezetting P+R ophalen
         run: node scripts/fetch-live.js || echo "Bezetting nu niet beschikbaar"
 
-      - name: Tariefregels, parser en openingstijden testen
-        run: node --test server/pricing.test.js shared/rules.test.js shared/hours.test.js shared/bot.test.js
+      - name: Tariefregels, parser, openingstijden en AI-zoeken testen
+        run: node --test server/pricing.test.js shared/rules.test.js shared/hours.test.js shared/bot.test.js shared/semantic.test.js
 
       - run: npm run build:pages
       - uses: actions/configure-pages@v5

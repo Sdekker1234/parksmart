@@ -1,8 +1,17 @@
 // De ingebouwde ParkSmart-assistent: werkt zonder account, sleutel of externe AI-dienst.
 // Herkent wat de bestuurder vraagt (zoeken, vervolgvraag, één optie, openingstijden, navigeren),
 // onthoudt het gesprek via de app-status en bouwt het antwoord uit de berekende feiten.
+// Snappen de vaste regels de bestemming niet ("ik heb kiespijn"), dan zoekt een klein AI-model in
+// de browser (semantic.js) in onze eigen lijst met bedrijven en plekken wat er het best bij past.
 import { checkVisit } from './hours.js';
 import { eur, duration, distance } from './format.js';
+import { SEMANTIC, aiQuery } from './semantic.js';
+
+const AI_NOTE = 'Gevonden met AI: een taalmodel dat in je browser draait, in onze eigen lijst met bedrijven uit OpenStreetMap. Klopt het niet? Typ dan de naam van de zaak.';
+// Dingen die niet in onze data zitten: eerlijk zeggen in plaats van het AI-model iets te laten gokken
+const UNSUPPORTED = /\b(gehandicapt\w*|invalide\w*|mindervalide\w*|laadpa(?:al|len)|laadpunt\w*|oplaadpunt\w*|opladen|elektrisch laden|camper\w*|vrachtwagen\w*)\b/;
+const UNSUPPORTED_TEXT =
+  "Dat zit nog niet in ParkSmart. Ik ken alleen gewone parkeerplekken voor auto's: garages, betaalzones, P+R en gratis plekken. Gehandicaptenparkeerplaatsen, laadpalen en plekken voor campers of vrachtwagens staan er nog niet in; kijk daarvoor op de site van de gemeente 's-Hertogenbosch.";
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/['’`]/g, '').replace(/[^a-z0-9+ ]+/g, ' ').replace(/\s+/g, ' ').trim();
 const has = (text, re) => re.test(norm(text));
@@ -34,9 +43,10 @@ const HELP =
   '- **2 uur bij de HEMA**\n- **zaterdag 14:00 drie uur naar de Sint-Jan, max 10 minuten lopen**\n- **gratis parkeren bij het station**\n' +
   'Daarna kun je doorvragen: "en voor 4 uur?", "dichterbij?", "alleen garages", "wat kost de tweede?" of "is de HEMA zaterdag open?".';
 
-export function createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl }) {
+export function createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl, semantic = null }) {
   let last = null; // laatste zoekresultaat (zelfde volgorde als het kaartje in de chat)
   let lastPlace = null; // laatste winkel waar een openingstijdenvraag over ging
+  let pendingTrip = null; // tijd/duur uit een vraag waarbij we eerst moesten vragen welke zaak je bedoelt
 
   const priced = (sum) => (sum?.options ?? []).filter((o) => o.total_eur != null);
   const price = (o) => (o.total_eur === 0 ? 'gratis' : `${o.source_trust === 'estimate' ? '≈ ' : ''}${eur(o.total_eur)}`);
@@ -232,6 +242,80 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     return { text: lines.join('\n\n') };
   }
 
+  // ---------- AI als de vaste regels de bestemming niet snappen ----------
+  const placeLabel = (p) => [p.name, [p.street, p.nr].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const lower = (s) => (/^[A-Z][a-z]/.test(s) ? s[0].toLowerCase() + s.slice(1) : s);
+  const countText = (n) => (n === 1 ? 'er één' : `er ${n}`);
+  const isAddress = (p) => !String(p.id || '').startsWith('place-') && !String(p.id || '').startsWith('lm-');
+  const STREET_WORD = /\b\w*(straat|laan|weg|plein|singel|kade|gracht|dijk|steeg|dreef|baan|pad|wal|poort)\b/;
+
+  // Zaak uit de AI-lijst omzetten naar een bestemming (via de gewone zoekfunctie, voor adres en openingstijden)
+  async function placeDest(p) {
+    try {
+      const { result } = await api.geocode(placeLabel(p));
+      if (result && result.id === `place-${p.id}`) return toDest(result);
+    } catch {
+      /* dan bouwen we hem zelf */
+    }
+    const address = [p.street, p.nr].filter(Boolean).join(' ') || null;
+    return toDest({ id: `place-${p.id}`, label: placeLabel(p), name: p.name, kind: p.cat, address, lat: p.lat, lon: p.lon });
+  }
+
+  // Geeft een antwoord terug, of { dest, prefix } als we met de gevonden plek verder kunnen zoeken.
+  async function viaAi(text, parsed, fallback) {
+    if (UNSUPPORTED.test(norm(text))) return { intent: 'unsupported', text: UNSUPPORTED_TEXT };
+    if (!semantic || semantic.status() === 'unsupported') return fallback;
+    const query = aiQuery(text);
+    if (query.replace(/\s/g, '').length < 3) return fallback;
+    pendingTrip = { parsed, at: Date.now() };
+    if (semantic.status() !== 'ready') {
+      if (!semantic.consented?.()) {
+        return {
+          intent: 'ai_offer',
+          text: `Met mijn vaste regels snap ik niet waar je heen wilt. Ik kan het ook met AI proberen: een klein taalmodel dat helemaal in je browser draait, dus je vraag gaat nergens heen. Daarvoor download ik eenmalig ongeveer ${SEMANTIC.downloadMb} MB; daarna gaat het meteen.\n\nLiever niet? Noem dan een winkel, straat of bekende plek, bijvoorbeeld **2 uur bij de HEMA**.`,
+          actions: [{ label: 'Probeer het met AI', aiLoad: true, ask: text }],
+        };
+      }
+      try {
+        await semantic.enable();
+      } catch {
+        return fallback;
+      }
+    }
+    let m;
+    try {
+      m = await semantic.match(text);
+    } catch {
+      return fallback;
+    }
+    if (m.kind === 'none') {
+      pendingTrip = null;
+      return { intent: 'ai_none', text: `${fallback.text}\n\nOok met AI vind ik in onze lijst met bedrijven en plekken niets dat goed past bij "${m.query}".`, ai: m };
+    }
+    if (m.kind === 'landmark' && m.confident) {
+      return { dest: toDest({ id: m.landmark.id, label: m.landmark.label, lat: m.landmark.lat, lon: m.landmark.lon }), prefix: `Ik denk dat je naar **${m.landmark.label}** wilt.`, ai: m };
+    }
+    if (m.kind === 'place' && m.confident) {
+      const p = m.place;
+      return { dest: await placeDest(p), prefix: `Ik denk dat je **${p.name}** bedoelt (${lower(p.cat)}${p.street ? `, ${p.street}` : ''}).`, ai: m };
+    }
+    if (m.kind === 'category') {
+      return {
+        intent: 'ai_category',
+        text: `Ik denk dat je een **${lower(m.category)}** zoekt. In onze lijst staan ${countText(m.count)} in Den Bosch. Welke bedoel je? Je kunt ook de naam typen.`,
+        actions: m.candidates.map((p) => ({ label: placeLabel(p), ask: placeLabel(p) })),
+        note: AI_NOTE,
+        ai: m,
+      };
+    }
+    // Wel een treffer, maar niet zeker genoeg om meteen te zoeken: vragen
+    const places = m.kind === 'landmark' ? [] : m.alternatives?.length ? m.alternatives : [m.place];
+    const options = m.kind === 'landmark' ? [{ label: m.landmark.label, ask: m.landmark.label }] : places.map((p) => ({ label: placeLabel(p), ask: placeLabel(p) }));
+    const cats = new Set(places.slice(0, 4).map((p) => p.cat));
+    const hint = cats.size === 1 ? `, maar ik denk aan een **${lower([...cats][0])}**` : '';
+    return { intent: 'ai_suggest', text: `Ik weet het niet zeker${hint}. Bedoel je misschien een van deze?`, actions: options.slice(0, 4), note: AI_NOTE, ai: m };
+  }
+
   // ---------- Hoofdlogica ----------
   async function turn(text) {
     const r = await route(text);
@@ -305,25 +389,83 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
     }
 
     // Bestemming bepalen. Een bestemming die alleen uit losse woorden is geraden, telt pas als hij echt iets oplevert.
+    // Lukt het de vaste regels niet, dan probeert viaAi het met het AI-model (als dat er is).
     let dest;
+    let aiHit = null;
+    const tryAi = async (fallback) => {
+      const r = await viaAi(text, parsed, fallback);
+      if (r.dest) aiHit = r;
+      return r;
+    };
     if (parsed.place && parsed.placeInCity === false) return { intent: 'outside', text: 'Die plek ligt buiten Den Bosch. ParkSmart werkt voorlopig alleen in Den Bosch.' };
     if (parsed.place && !plausible(parsed.destination, parsed.place)) {
       parsed.place = null;
       if (!state.dest || !hasTripInfo) {
-        return parsed.destination_guess && !hasTripInfo
-          ? { intent: 'unclear', text: `Sorry, dat begrijp ik niet helemaal.\n\n${HELP}` }
-          : { intent: 'unclear', text: `Ik weet niet zeker welke plek je bedoelt met "${parsed.destination}". Noem een winkel, straat of bekende plek in Den Bosch.` };
+        const r = await tryAi(
+          parsed.destination_guess && !hasTripInfo
+            ? { intent: 'unclear', text: `Sorry, dat begrijp ik niet helemaal.\n\n${HELP}` }
+            : { intent: 'unclear', text: `Ik weet niet zeker welke plek je bedoelt met "${parsed.destination}". Noem een winkel, straat of bekende plek in Den Bosch.` },
+        );
+        if (!aiHit) return r;
+      } else parsed.destination = null;
+    }
+    // Een straat die alleen toevallig op een woord lijkt ("dokter" -> Dokter Andereggstraat), terwijl het
+    // AI-model een soort zaak herkent: dan vragen we wat je bedoelt. Alleen als het model al draait.
+    if (parsed.place && semantic?.status() === 'ready' && isAddress(parsed.place) && !STREET_WORD.test(t) && !/\d/.test(parsed.destination ?? '')) {
+      let m = null;
+      try {
+        m = await semantic.match(text);
+      } catch {
+        /* dan blijft het bij de straat */
       }
-      parsed.destination = null;
+      if (m && (m.kind === 'category' || m.kind === 'place')) {
+        pendingTrip = { parsed, at: Date.now() };
+        const list = m.kind === 'category' ? m.candidates : [m.place, ...(m.alternatives ?? []).filter((p) => p.id !== m.place.id)];
+        const what = m.kind === 'category' ? `een **${lower(m.category)}**` : `**${m.place.name}**`;
+        return {
+          intent: 'ai_suggest',
+          text: `Bedoel je ${what}, of echt **${parsed.place.label}**?`,
+          actions: [...list.slice(0, 3).map((p) => ({ label: placeLabel(p), ask: placeLabel(p) })), { label: parsed.place.label, ask: parsed.place.label }],
+          note: AI_NOTE,
+          ai: m,
+        };
+      }
     }
-    if (!parsed.place && parsed.destination_guess) {
-      if (state.dest && hasTripInfo) parsed.destination = null; // alleen een vervolgvraag (tijd, duur, filter)
-      else if (!state.dest && hasTripInfo) parsed.destination = null; // tijd/duur zonder plek: vraag waarheen
-      else return { intent: 'unclear', text: `Sorry, dat begrijp ik niet helemaal.\n\n${HELP}` };
+    if (!aiHit && !parsed.place && parsed.destination_guess) {
+      if (state.dest && hasTripInfo) {
+        // Lijkt een vervolgvraag (tijd, duur, filter), maar misschien noem je een nieuwe soort zaak
+        // ("en vanavond 3 uur film kijken"). Dat checken we alleen als het AI-model al draait.
+        if (semantic?.status() === 'ready' && !Object.keys(refine).length) {
+          const r = await tryAi({ intent: 'refine_fallthrough', text: '' });
+          if (!aiHit && r.intent === 'ai_category' && r.ai?.confident) return r;
+        }
+        if (!aiHit) {
+          parsed.destination = null; // toch een vervolgvraag
+          pendingTrip = null;
+        }
+      } else if (!state.dest && hasTripInfo) parsed.destination = null; // tijd/duur zonder plek: vraag waarheen
+      else {
+        const r = await tryAi({ intent: 'unclear', text: `Sorry, dat begrijp ik niet helemaal.\n\n${HELP}` });
+        if (!aiHit) return r;
+      }
     }
-    if (parsed.place) dest = toDest(parsed.place);
-    else if (parsed.destination && !Object.keys(refine).length) return { intent: 'notfound', text: `Ik kan "${parsed.destination}" niet vinden in Den Bosch. Probeer een winkelnaam, straat of bekende plek.` };
-    else if (!state.dest) return { intent: 'ask_destination', text: 'Waar wil je heen? Noem een winkel, straat of plek in Den Bosch, bijvoorbeeld: **2 uur bij de HEMA**.' };
+    if (aiHit) dest = aiHit.dest;
+    else if (parsed.place) dest = toDest(parsed.place);
+    else if (parsed.destination && !Object.keys(refine).length) {
+      const r = await tryAi({ intent: 'notfound', text: `Ik kan "${parsed.destination}" niet vinden in Den Bosch. Probeer een winkelnaam, straat of bekende plek.` });
+      if (!aiHit) return r;
+      dest = aiHit.dest;
+    } else if (!state.dest) {
+      const r = await tryAi({ intent: 'ask_destination', text: 'Waar wil je heen? Noem een winkel, straat of plek in Den Bosch, bijvoorbeeld: **2 uur bij de HEMA**.' });
+      if (!aiHit) return r;
+      dest = aiHit.dest;
+    }
+
+    // Eerder gevraagde tijd en duur meenemen als je daarna pas zegt welke zaak je bedoelt
+    if (dest && pendingTrip && Date.now() - pendingTrip.at < 15 * 60e3) {
+      for (const k of ['duration_minutes', 'date', 'time', 'max_price_eur', 'max_walk_minutes', 'types', 'sort']) parsed[k] ??= pendingTrip.parsed[k] ?? null;
+    }
+    if (dest) pendingTrip = null;
 
     let arrival;
     if (parsed.date || parsed.time) {
@@ -348,10 +490,13 @@ export function createSmartAssistant({ api, state, applySearch, searchSummary, f
       sort: parsed.sort ?? refine.sort,
     });
     if (!res.ok) return { intent: 'error', text: res.message };
-    return { intent: isNewTrip ? 'search' : 'refine', ...searchAnswer(searchSummary(), {
+    const answer = searchAnswer(searchSummary(), {
       assumedDuration: isNewTrip && !parsed.duration_minutes && state.durationMin === 120,
       preferWalk: RE.closer.test(t) || parsed.sort === 'walk',
-    }) };
+    });
+    if (UNSUPPORTED.test(t)) answer.text += '\n\nLet op: gehandicaptenparkeerplaatsen, laadpalen en plekken voor campers zitten nog niet in ParkSmart.';
+    if (aiHit) return { intent: 'ai_search', ...answer, text: `${aiHit.prefix}\n\n${answer.text}`, note: AI_NOTE, ai: aiHit.ai };
+    return { intent: isNewTrip ? 'search' : 'refine', ...answer };
   }
 
   return { turn };

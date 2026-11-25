@@ -54,12 +54,12 @@ export const SCENARIOS = [
   { name: 'kledingwinkel', turns: [{ q: '1 uur bij de zara', expect: { intent: 'search', dest: /Zara/, duration: 60 } }] },
 
   // ---------- Bestaat niet / buiten Den Bosch / onzin ----------
-  { name: 'ikea', turns: [{ q: 'parkeren bij de ikea', expect: { intent: ['notfound', 'unclear'], notText: /is het goedkoopst/ } }] },
+  { name: 'ikea', turns: [{ q: 'parkeren bij de ikea', expect: { intent: ['notfound', 'unclear', 'ai_none'], notText: /is het goedkoopst/ } }] },
   { name: 'efteling', turns: [{ q: 'ik wil naar de efteling', expect: { intent: ['notfound', 'outside', 'unclear'], notText: /is het goedkoopst/ } }] },
   { name: 'andere stad', turns: [{ q: 'parkeren in eindhoven', expect: { intent: ['outside', 'notfound', 'unclear'], notText: /is het goedkoopst/ } }] },
   { name: 'weer', turns: [{ q: 'wat voor weer wordt het morgen', expect: { intent: ['help', 'unclear'], notText: /is het goedkoopst/ } }] },
   { name: 'mop', turns: [{ q: 'vertel een mop', expect: { intent: ['help', 'unclear'], notText: /is het goedkoopst/ } }] },
-  { name: 'gebrabbel', turns: [{ q: 'asdfgh', expect: { intent: ['help', 'unclear', 'notfound'], notText: /is het goedkoopst/ } }] },
+  { name: 'gebrabbel', turns: [{ q: 'asdfgh', expect: { intent: ['help', 'unclear', 'notfound', 'ai_none'], notText: /is het goedkoopst/ } }] },
   { name: 'alleen tijd', turns: [{ q: 'ik ben er om half 3', expect: { intent: 'ask_destination' } }] },
   { name: 'vergunning', turns: [{ q: 'hoeveel kost een parkeervergunning?', expect: { intent: ['help', 'unclear'], notText: /is het goedkoopst/ } }] },
 
@@ -207,4 +207,63 @@ export const HOLDOUT = [
       { q: 'wat kost de derde', expect: { intent: 'detail' } },
     ],
   },
+];
+
+// ---------- AI-zoeken (public/js/semantic.js) ----------
+// Vragen waarbij de vaste regels de bestemming niet snappen en het AI-model in onze eigen lijst zoekt.
+// AI_SCENARIOS zijn gebruikt om de drempels en de woordenlijst (server/semantic-cats.js) af te stellen.
+export const AI_SCENARIOS = [
+  { name: 'ai kiespijn', ai: true, turns: [{ q: 'ik heb kiespijn', expect: { intent: 'ai_category', text: /tandarts/i } }] },
+  { name: 'ai patat', ai: true, turns: [{ q: 'waar kan ik patat halen', expect: { intent: 'ai_category', text: /snackbar/i } }] },
+  { name: 'ai pinnen', ai: true, turns: [{ q: 'ik moet geld pinnen', expect: { intent: 'ai_category', text: /\bbank\b/i } }] },
+  { name: 'ai fiets', ai: true, turns: [{ q: 'mijn fiets is kapot', expect: { intent: 'ai_category', text: /fietsenwinkel/i } }] },
+  { name: 'ai bril', ai: true, turns: [{ q: 'nieuwe bril kopen', expect: { intent: 'ai_category', text: /opticien/i } }] },
+  { name: 'ai boodschappen', ai: true, turns: [{ q: 'boodschappen doen', expect: { intent: 'ai_category', text: /supermarkt/i } }] },
+  { name: 'ai paspoort', ai: true, turns: [{ q: 'paspoort aanvragen', expect: { intent: 'ai_category', text: /gemeentehuis/i } }] },
+  { name: 'ai engels apotheek', ai: true, turns: [{ q: 'i need a pharmacy', expect: { intent: 'ai_category', text: /apotheek/i } }] },
+  {
+    name: 'ai film en daarna kiezen',
+    ai: true,
+    turns: [
+      { q: 'ik wil vanavond 3 uur film kijken', expect: { intent: 'ai_category', text: /bioscoop/i } },
+      { q: 'Kinepolis', expect: { intent: 'search', dest: /Kinepolis/, duration: 180, time: '19:00', date: 'vandaag', results: true } },
+    ],
+  },
+  // Niet in onze data: eerlijk zeggen in plaats van het model te laten gokken (eerst een bekende grens)
+  { name: 'niet in data laden', turns: [{ q: 'waar kan ik mijn auto opladen', expect: { intent: 'unsupported', text: /laadpalen/ } }] },
+  { name: 'niet in data gehandicapt', turns: [{ q: 'ik zoek een gehandicaptenparkeerplaats', expect: { intent: 'unsupported', text: /gehandicapten/i } }] },
+  { name: 'niet in data met zoekvraag', turns: [{ q: '2 uur bij de HEMA, ik heb een gehandicaptenkaart', expect: { intent: 'search', dest: /HEMA/, text: /gehandicapten/i } }] },
+  {
+    name: 'ai nieuwe soort zaak in gesprek',
+    ai: true,
+    turns: [
+      { q: '2 uur bij de HEMA', expect: { intent: 'search', dest: /HEMA/ } },
+      { q: 'en vanavond 3 uur film kijken', expect: { intent: 'ai_category', text: /bioscoop/i } },
+      { q: 'Vue', expect: { intent: 'search', dest: /Vue/, duration: 180, time: '19:00' } },
+      { q: 'en voor 4 uur?', expect: { intent: 'refine', dest: /Vue/, duration: 240 } },
+    ],
+  },
+  { name: 'ai onzin', ai: true, turns: [{ q: 'qwerty', expect: { intent: ['unclear', 'ai_none'] } }] },
+  { name: 'ai ikea', ai: true, turns: [{ q: 'parkeren bij de ikea', expect: { intent: ['notfound', 'ai_none'], notText: /meubel|opticien/i } }] },
+];
+
+// Nieuwe formuleringen die niet zijn gebruikt bij het afstellen: meet of het AI-zoeken echt generaliseert.
+export const AI_HOLDOUT = [
+  { name: 'ai h tand', ai: true, knownFail: 'De vaste regels vinden eerst de Pijnappelsche Poort (pijn), en het AI-model scoort te laag (0,68) om dat te overrulen.', turns: [{ q: 'mijn tand doet pijn', expect: { intent: 'ai_category', text: /tandarts/i } }] },
+  { name: 'ai h kroket', ai: true, turns: [{ q: 'zin in een kroketje', expect: { intent: 'ai_category', text: /snackbar/i } }] },
+  { name: 'ai h haar verven', ai: true, turns: [{ q: 'ik moet mijn haar laten verven', expect: { intent: 'ai_category', text: /kapper/i } }] },
+  { name: 'ai h pakje', ai: true, knownFail: 'Past bij meerdere soorten (postkantoor, kiosk, tijdschriftenwinkel): de gap is te klein, dus "weet ik niet".', turns: [{ q: 'waar kan ik een pakje afgeven', expect: { intent: 'ai_category', text: /postkantoor/i } }] },
+  { name: 'ai h dokter', ai: true, turns: [{ q: 'ik voel me niet lekker en moet naar de dokter', expect: { intent: ['ai_category', 'ai_suggest'], text: /huisarts/i } }] },
+  { name: 'ai h haircut', ai: true, turns: [{ q: 'where can I get a haircut', expect: { intent: ['ai_category', 'ai_suggest'], text: /kapper/i } }] },
+  { name: 'ai h duits', ai: true, turns: [{ q: 'ich brauche eine Apotheke', expect: { intent: ['ai_category', 'ai_suggest'], text: /apotheek/i } }] },
+  { name: 'ai h taart', ai: true, turns: [{ q: 'ik wil een taart bestellen', expect: { intent: 'ai_category', text: /bakker/i } }] },
+  { name: 'ai h biertje', ai: true, knownFail: 'Past bij kroeg, bar én café: de gap is te klein, dus "weet ik niet".', turns: [{ q: 'zin in een biertje', expect: { intent: 'ai_category', text: /kroeg|bar|café/i } }] },
+  { name: 'ai h speelgoed', ai: true, turns: [{ q: 'ik zoek een cadeau voor mijn zoontje', expect: { intent: 'ai_category', text: /speelgoed|cadeau/i } }] },
+  { name: 'ai h blabla', ai: true, turns: [{ q: 'blabla', expect: { intent: ['unclear', 'ai_none'] } }] },
+];
+
+// Bewust falende gevallen: grenzen van het AI-zoeken die we kennen (zie het foutenrapport).
+export const AI_KNOWN_FAILS = [
+  { name: 'grens voetbal', ai: true, knownFail: 'De vaste regels gaan voor: een winkel met "voetbal" in de naam wint van het stadion. AI komt niet aan bod.', turns: [{ q: 'ik ga naar de voetbal', expect: { dest: /Vliert/ } }] },
+  { name: 'grens vaag', ai: true, knownFail: 'Te vaag om te kiezen, maar het model kiest toch een soort zaak (speelhal).', turns: [{ q: 'ik wil iets leuks doen', expect: { intent: ['ai_none', 'unclear', 'ask_destination'] } }] },
 ];

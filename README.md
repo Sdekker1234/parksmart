@@ -79,6 +79,17 @@ Rechtsonder zit de **Assistent**. Online werkt hij standaard **zonder account, s
 
 Antwoorden noemen de goedkoopste optie, een alternatief met minder lopen, de bezetting (als bekend), actieve filters en de betrouwbaarheid van de bron.
 
+### AI-zoeken in de browser (zonder account)
+
+Snappen de vaste regels niet waar je heen wilt ("ik heb kiespijn", "waar kan ik patat halen", "where can I get a haircut"), dan biedt de assistent aan om het met AI te proberen. Dat is een klein meertalig taalmodel ([paraphrase-multilingual-MiniLM-L12-v2](https://huggingface.co/Xenova/paraphrase-multilingual-MiniLM-L12-v2), Apache-2.0) dat via [Transformers.js](https://github.com/huggingface/transformers.js) **helemaal in de browser** draait. De vraag verlaat het apparaat niet; alleen het model wordt eenmalig gedownload (±135 MB van Hugging Face, daarna uit de browsercache).
+
+Het model zet de vraag om in een betekenisvector en vergelijkt die met vooraf berekende vectoren van onze eigen bronnen: de 179 soorten zaken met gewone woorden erbij (`server/semantic-cats.js`), de ±2.300 bedrijven uit OpenStreetMap en de bekende plekken. Het antwoord komt dus altijd uit onze eigen lijst, met de vermelding dat AI is gebruikt. Bij een soort zaak vraagt de assistent welke je bedoelt; tijd en duur uit je vraag onthoudt hij tot je kiest.
+
+Een vaste drempel werkt niet: ook onzin ("qwerty") scoort hoog. Daarom telt ook hoeveel de beste soort zaak boven de 8e beste uitsteekt (`THRESHOLDS` in `public/js/semantic.js`). Wat niet in de data zit (laadpalen, gehandicaptenparkeerplaatsen) zegt de assistent eerlijk.
+
+- `node scripts/build-semantic.js` maakt `data/snapshot/semantic.json` en `semantic.bin` opnieuw (alleen als de bedrijven veranderd zijn; GitHub Actions doet dit vanzelf).
+- `npm run eval:bot -- --all` draait de testset mét het AI-model; `-- --zonder-ai` zonder. Bekende grenzen (`knownFail` in `scripts/bot-scenarios.js`) tellen apart.
+
 ### Optioneel: Claude
 
 Wil je later een taalmodel, dan staat de koppeling met Claude (`claude-opus-5-5`) klaar. Claude beslist dan zelf welke tools hij nodig heeft:

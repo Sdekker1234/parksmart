@@ -202,6 +202,12 @@ textarea#aiInput:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(
 .btn-ghost { background: var(--surface-2); color: var(--text); }
 .btn-ghost:hover { background: var(--accent-soft); }
 .btn-nav { background: var(--cheap); color: #fff; }
+.btn-choice { background: var(--surface); color: var(--accent); border: 1.5px solid var(--accent-soft); }
+.btn-choice:hover:not(:disabled) { border-color: var(--accent); }
+.btn-ai { background: var(--accent); color: #fff; }
+.btn-ai:hover:not(:disabled) { filter: brightness(1.08); }
+.btn-choice:disabled, .btn-ai:disabled { opacity: .55; cursor: default; }
+.ai-note { margin-top: 6px; padding-left: 8px; border-left: 3px solid var(--accent-soft); }
 .btn svg { width: 16px; height: 16px; }
 
 .when { display: grid; gap: 14px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }

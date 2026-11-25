@@ -11,13 +11,15 @@
     "test": "node --test \"server/**/*.test.js\" \"shared/**/*.test.js\"",
     "build:pages": "node scripts/build-pages.js",
     "live": "node scripts/fetch-live.js",
-    "eval:bot": "node scripts/eval-bot.js"
+    "eval:bot": "node scripts/eval-bot.js",
+    "semantic": "node scripts/build-semantic.js"
   },
   "engines": {
     "node": "24.x"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
+    "@huggingface/transformers": "4.3.2",
     "leaflet": "^1.9.4",
     "zod": "^4.6.7"
   }

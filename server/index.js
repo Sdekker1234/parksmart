@@ -20,6 +20,8 @@ import { fetchJson } from './cache.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(here, '..', 'public');
 const LEAFLET = path.join(here, '..', 'node_modules', 'leaflet', 'dist');
+const TRANSFORMERS = path.join(here, '..', 'node_modules', '@huggingface', 'transformers', 'dist');
+const SNAPSHOT = path.join(here, '..', 'data', 'snapshot');
 const PORT = Number(process.env.PORT) || 3000;
 // Op een hostingplatform (Render zet RENDER=true) moet de server op alle interfaces luisteren.
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
@@ -338,6 +340,9 @@ async function handle(req, res) {
 
   if (p.startsWith('/api/')) return send(res, 404, { error: 'Onbekende API-route' });
   if (p.startsWith('/vendor/leaflet/')) return serveStatic(res, LEAFLET, p.slice('/vendor/leaflet/'.length));
+  // AI-zoeken in de browser: Transformers.js en de vooraf berekende vectoren
+  if (p === '/vendor/transformers/transformers.min.js') return serveStatic(res, TRANSFORMERS, 'transformers.min.js');
+  if (p === '/data/semantic.json' || p === '/data/semantic.bin') return serveStatic(res, SNAPSHOT, p.slice('/data/'.length));
   return serveStatic(res, PUBLIC, decodeURIComponent(p));
 }
 

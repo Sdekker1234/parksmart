@@ -3,6 +3,7 @@ import { api, isStatic } from './api.js';
 import { createMap } from './map.js';
 import { createBot } from './bot.js';
 import { createSmartAssistant } from './smart-assistant.js';
+import { createBrowserSemantic } from './semantic-browser.js';
 import { ALL_TYPES, DEFAULT_WALK, toDest, applySearchParams, visibleOptions, buildSummary, clockTime } from './summary.js';
 import { eur, eurShort, duration, distance, localIso, nowRounded, arrivalLabel, timeAgo, esc } from './format.js';
 
@@ -76,6 +77,7 @@ async function init() {
   bot = createBot({
     tools: botTools,
     rulesTurn,
+    semantic,
     aiAvailable: Boolean(s.ai?.enabled),
     getContext: () => ({
       now: localIso(new Date()),
@@ -477,8 +479,10 @@ const botTools = {
 // Zonder AI: de ingebouwde assistent (smart-assistant.js) gebruikt dezelfde zoekfuncties als Claude.
 const navUrl = (o) => `https://www.google.com/maps/dir/?api=1&destination=${o.lat.toFixed(6)},${o.lon.toFixed(6)}&travelmode=driving`;
 let smart;
+// AI-zoeken in de browser (pas geladen als de gebruiker het nodig heeft en ja zegt)
+const semantic = createBrowserSemantic();
 const rulesTurn = (text) => {
-  smart ??= createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl });
+  smart ??= createSmartAssistant({ api, state, applySearch, searchSummary, findOption, toDest, localIso, nowRounded, navUrl, semantic });
   return smart.turn(text);
 };
 

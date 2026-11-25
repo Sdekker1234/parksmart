@@ -14,6 +14,10 @@ await mkdir(dist, { recursive: true });
 // 1. Frontend
 await cp(path.join(root, 'public'), dist, { recursive: true });
 await cp(path.join(root, 'node_modules', 'leaflet', 'dist'), path.join(dist, 'vendor', 'leaflet'), { recursive: true });
+// Transformers.js voor het AI-model in de browser (één zelfstandig bestand; het model zelf komt van Hugging Face)
+await mkdir(path.join(dist, 'vendor', 'transformers'), { recursive: true });
+await cp(path.join(root, 'node_modules', '@huggingface', 'transformers', 'dist', 'transformers.min.js'), path.join(dist, 'vendor', 'transformers', 'transformers.min.js'));
+if (!(await exists(path.join(root, 'data', 'snapshot', 'semantic.bin')))) throw new Error('AI-index ontbreekt: draai eerst node scripts/build-semantic.js');
 
 // 2. Rekenmotor: alle servermodules behalve de server zelf, de AI (heeft een geheime sleutel nodig)
 //    en de Node-cache; die laatste vervangen we door de browserversie.

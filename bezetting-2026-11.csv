@@ -11,3 +11,5 @@ meting_lokaal,meting_utc,opgehaald_utc,dag,uur,minuut,locatie_id,locatie,vrij,ca
 2026-11-26T01:05,2026-11-26T00:05:40.000Z,2026-11-26T00:15:03.816Z,do,1,5,f1807d7c-176c-44f2-8fbc-a09b18c5aa69,P+R Magistratenlaan ('s-Hertogenbosch),121,133,9,true,false
 2026-11-26T09:50,2026-11-26T08:50:40.000Z,2026-11-26T08:51:47.413Z,do,9,50,f1807d7c-176c-44f2-8fbc-a09b18c5aa69,P+R Magistratenlaan ('s-Hertogenbosch),0,133,100,true,true
 2026-11-26T09:49,2026-11-26T08:49:02.000Z,2026-11-26T08:51:47.413Z,do,9,49,695cef16-b614-4489-b32a-687aca22dd4e,P+R Mayweg ('s-Hertogenbosch),173,353,51,true,false
+2026-11-26T13:20,2026-11-26T12:20:45.000Z,2026-11-26T12:29:09.678Z,do,13,20,f1807d7c-176c-44f2-8fbc-a09b18c5aa69,P+R Magistratenlaan ('s-Hertogenbosch),0,133,100,true,true
+2026-11-26T13:28,2026-11-26T12:28:08.000Z,2026-11-26T12:29:09.678Z,do,13,28,695cef16-b614-4489-b32a-687aca22dd4e,P+R Mayweg ('s-Hertogenbosch),107,353,69.7,true,false
